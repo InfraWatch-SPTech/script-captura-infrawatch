@@ -1,0 +1,26 @@
+[
+    {
+        "fk_componente":1,
+        "fk_equipamento":"010101"
+    },
+    {
+        "fk_componente":2,
+        "fk_equipamento":"121212"
+    },
+    {
+        "fk_componente":3,
+        "fk_equipamento":"020202"
+    },
+    {
+        "fk_componente":1,
+        "fk_equipamento":"020202"
+    },
+    {
+        "fk_componente":2,
+        "fk_equipamento":"020202"
+    },
+    {
+        "fk_componente":3,
+        "fk_equipamento":"010101"
+    }
+]
