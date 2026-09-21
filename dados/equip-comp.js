@@ -22,5 +22,14 @@
     {
         "fk_componente":3,
         "fk_equipamento":"010101"
+    },
+  {
+        "fk_componente":2,
+        "fk_equipamento":"010101"
     }
+
 ]
+
+
+
+
