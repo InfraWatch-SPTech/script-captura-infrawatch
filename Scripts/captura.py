@@ -7,28 +7,57 @@ import os
 from getpass import getpass
 import boto3
 import io
+import pymysql as mysql
 
 
 #  conexão com o S3
 s3 = boto3.client(
     "s3",
+)
     
 
 #  nome do bucket
 BUCKET = "infrawatch-server-s3"
 
 
-with open('./dados/funcionarios.js', 'r', encoding='utf-8') as jsonfile:
-    funcionarios = json.load(jsonfile)
 
-with open('./dados/equipamentos.js', 'r', encoding='utf-8') as jsonfile:
-    equipamentos = json.load(jsonfile)
+# Criando conexção com banco de dados
+bd = mysql.connect(
+    host='LOCAL',
+    user='USER',
+    password='USER_PASSWORD',
+    database='DATABASE',
+    cursorclass=mysql.cursors.DictCursor # As consultas retornam um dicionário
+)
 
-with open('./dados/componentes.js', 'r', encoding='utf-8') as jsonfile:
-    componentes = json.load(jsonfile)
+# Executando consulta e guardando em variáveis
 
-with open('./dados/equip-comp.js', 'r', encoding='utf-8') as jsonfile:
-    equip_comp = json.load(jsonfile)
+# EQUIPAMENTOS
+cursor = bd.cursor()
+cursor.execute("SELECT id, codigo FROM equipamento;")
+equipamentos = cursor.fetchall()
+
+# COMPONENTES
+cursor.execute("SELECT id, codigo, nome, medida FROM componente;")
+componentes = cursor.fetchall()
+
+# EQUIPAMENTO_COMPONENTE
+cursor.execute("SELECT fk_componente, fk_equipamento FROM equipamento_componente;")
+equip_comp = cursor.fetchall()
+
+# FUNCIONARIOS
+cursor.execute("SELECT nome, senha FROM usuario;")
+funcionarios = cursor.fetchall()
+
+# EMPRESAS
+cursor.execute("SELECT id, razao_social FROM empresa;")
+empresas = cursor.fetchall()
+
+# Fechando conexão
+cursor.close()
+bd.close()
+
+
 
 os.system('cls' if os.name == 'nt' else 'clear')
 
@@ -37,8 +66,9 @@ equipamento_atual = str(input("Digite o código de série do seu equipamento:"))
 equipamento_cadastrado = False
 
 for i in range(len(equipamentos)):
-    if equipamento_atual == equipamentos[i]["codigo"]:
+    if equipamento_atual == str(equipamentos[i]['codigo']):
         equipamento_cadastrado = True
+        equipamento_atual = equipamentos[i]
 
 if not equipamento_cadastrado:
 
@@ -72,9 +102,9 @@ Carregando script...""")
     acesso = False
 
     for i in range(len(funcionarios)):
-        if ipt_usuario == funcionarios[i]["usuario"] and ipt_senha == funcionarios[i]["senha"]:
+        if ipt_usuario == funcionarios[i]["nome"] and ipt_senha == funcionarios[i]["senha"]:
             acesso = True
-            usuario = funcionarios[i]["usuario"]
+            usuario = funcionarios[i]["nome"]
 
     if not acesso:
 
@@ -90,7 +120,7 @@ Carregando script...""")
     capturar_comp = []
 
     for i in range(len(equip_comp)):
-        if equip_comp[i]['fk_equipamento'] == equipamento_atual:
+        if equip_comp[i]['fk_equipamento'] == equipamento_atual['id']:
             capturar_comp.append(equip_comp[i]['fk_componente'])
 
     if continuar == 's':
@@ -101,12 +131,20 @@ Carregando script...""")
 
         for i in range(len(capturar_comp)):
             for j in range(len(componentes)):
-                if capturar_comp[i] == componentes[j]['id_componente']:
+                if capturar_comp[i] == componentes[j]['id']:
 
                     nome_comp = componentes[j]['nome']
                     medida_comp = componentes[j]['medida']
 
                     titulo_executados += f';{nome_comp}'
+
+# ---------------------------- TESTE --------------------------------
+        # Código que acha a pasta indicada e cria o arquivo csv
+        # with open('./arquivo.csv', 'w', newline='', encoding="utf-8") as csvfile:
+
+        #     writer = csv.writer(csvfile)
+        #     writer.writerow([f"{titulo_executados}"])
+# ---------------------------- TESTE --------------------------------
 
         # cria o CSV na memória, sem gerar arquivo local
         csv_buffer = io.StringIO()
@@ -128,7 +166,7 @@ Carregando script...""")
 
                 for j in range(len(componentes)):
 
-                    if capturar_comp[k] == componentes[j]['id_componente']:
+                    if capturar_comp[k] == componentes[j]['id']:
 
                         codigo_comp = componentes[j]['codigo']
 
@@ -166,18 +204,26 @@ Capturando dados
 
             #  adiciona a captura ao CSV que está na memória
             writer.writerow(
-                [equipamento_atual, data_hora]
+                [equipamento_atual['id'], data_hora]
                 + executados.lstrip(';').split(';')
             )
 
-        print("Finalizando a captura. Obrigada por escolher a BioTrace! =]")
+# ---------------------------- TESTE --------------------------------
+            # # Passando os parâmetros para a escrita no arquivo csv
+            # with open('./arquivo.csv', 'a', encoding="utf-8") as csvfile:
+
+            #     writer = csv.writer(csvfile)
+            #     writer.writerow([f"{equipamento_atual['id']};{data_hora}{executados}"]) # Exibe equipamento, data e os valores guardados
+# ---------------------------- TESTE --------------------------------
+
+        print("Finalizando a captura. Obrigada por escolher a InfraWatch! =]")
 
         # cria um nome único para cada captura
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         nome_arquivo = f"captura_{timestamp}.csv"
 
         #  define o caminho do arquivo dentro do S3
-        arquivo_s3 = f"bronze/{equipamento_atual}/{nome_arquivo}"
+        arquivo_s3 = f"bronze/{equipamento_atual['id']}/{nome_arquivo}"
 
         #  envia o CSV diretamente da memória para o S3
         s3.put_object(
