@@ -2,46 +2,27 @@ import psutil
 import csv
 from datetime import datetime
 import time
-import json
 import os
-from getpass import getpass
+#from getpass import getpass
 import boto3
 import io
 import pymysql as mysql
 
-# Rich
+# Rich para interface no terminal
 from rich.console import Console
 from rich.panel import Panel
-from rich.table import Table
-from rich.progress import (
-    Progress,
-    BarColumn,
-    TextColumn,
-    TimeElapsedColumn
-)
+from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn
 from rich.prompt import Prompt, Confirm
-from rich.text import Text
 from rich.align import Align
-from rich.rule import Rule
 from rich import box
-
 
 # ============================================================
 # CONFIGURAÇÃO VISUAL
 # ============================================================
-
 console = Console()
-
 AZUL_ESCURO = "#0B1F3A"
 AZUL_CLARO = "#38BDF8"
 PRETO = "#000000"
-BRANCO = "#FFFFFF"
-CINZA = "#A7B0BA"
-
-
-# ============================================================
-# BANNER
-# ============================================================
 
 BANNER = f"""
 [bold {AZUL_CLARO}]██╗   ██╗ ██╗   ██╗[/bold {AZUL_CLARO}]
@@ -52,9 +33,7 @@ BANNER = f"""
 [bold {AZUL_CLARO}]  ╚═══╝     ╚═══╝[/bold {AZUL_CLARO}]
 """
 
-
 def mostrar_banner():
-
     console.print(
         Panel(
             Align.center(BANNER),
@@ -65,38 +44,29 @@ def mostrar_banner():
         )
     )
 
-
 def limpar_tela():
     console.clear()
-
 
 # ============================================================
 # CONEXÃO COM O S3
 # ============================================================
+BUCKET = "infrawatch-server-s3"
 
 s3 = boto3.client(
-    "s3",
-
+"s3",
+aws_access_key_id=,
+aws_secret_access_key=
+aws_session_token=
 )
 
 
-# ============================================================
-# NOME DO BUCKET
-# ============================================================
-
-BUCKET = "infrawatch-server-s3"
-
 
 # ============================================================
-# CONEXÃO COM BANCO DE DADOS
+# CONEXÃO COM O BANCO DE DADOS NOVO (InfraWatch)
 # ============================================================
-
 console.print(
-    Panel(
-        "[bold white]Conectando ao banco de dados...[/bold white]",
-        border_style=AZUL_CLARO,
-        style=f"on {AZUL_ESCURO}"
-    )
+    Panel("[bold white]Conectando ao banco de dados InfraWatch...[/bold white]", 
+          border_style=AZUL_CLARO, style=f"on {AZUL_ESCURO}")
 )
 
 bd = mysql.connect(
@@ -107,481 +77,251 @@ bd = mysql.connect(
     cursorclass=mysql.cursors.DictCursor
 )
 
-
-# ============================================================
-# EXECUTANDO CONSULTAS
-# ============================================================
-
 cursor = bd.cursor()
 
-# EQUIPAMENTOS
-cursor.execute(
-    "SELECT id, codigo, fk_empresa FROM equipamento;"
-)
+# 1. Busca Equipamentos no schema novo
+cursor.execute("SELECT idEquipamento, nome, fkEmpresa FROM equipamento;")
 equipamentos = cursor.fetchall()
 
-# COMPONENTES
-cursor.execute("SELECT id, codigo, nome, medida FROM componente;")
+# 2. Busca Componentes no schema novo
+cursor.execute("SELECT idComponente, nome, tipo FROM componente;")
 componentes = cursor.fetchall()
 
-# EQUIPAMENTO_COMPONENTE
-cursor.execute(
-    "SELECT fk_componente, fk_equipamento FROM equipamento_componente;"
-)
+# 3. Busca Mapeamento Equipamento-Componente via parametro_alerta
+cursor.execute("SELECT DISTINCT fkComponente, fkEquipamento FROM parametro_alerta WHERE ativo = 1;")
 equip_comp = cursor.fetchall()
 
-# FUNCIONARIOS
-cursor.execute("SELECT nome, senha FROM usuario;")
+# 4. Busca Usuários
+cursor.execute("SELECT nome, email, senha, fkEmpresa FROM usuario;")
 funcionarios = cursor.fetchall()
 
-# EMPRESAS
-cursor.execute("SELECT id, razao_social FROM empresa;")
+# 5. Busca Empresas
+cursor.execute("SELECT idEmpresa, nome FROM empresa;")
 empresas = cursor.fetchall()
-
-
-# ============================================================
-# FECHANDO CONEXÃO
-# ============================================================
 
 cursor.close()
 bd.close()
 
-
 # ============================================================
-# TELA INICIAL
+# TELA INICIAL: IDENTIFICAÇÃO DO EQUIPAMENTO
 # ============================================================
-
 limpar_tela()
-
 mostrar_banner()
-
 console.print(
     Align.center(
         f"""
-[bold white]Olá, usuário.[/bold white]
-
-[bold {AZUL_CLARO}]Bem-vindo à configuração do seu ambiente InfraWatch![/bold {AZUL_CLARO}]
-
-[dim white]Para continuar, informe o código de série do seu equipamento.[/dim white]
-"""
+        [bold white]Olá, usuário.[/bold white]
+        [bold {AZUL_CLARO}]Bem-vindo à configuração do seu ambiente InfraWatch![/bold {AZUL_CLARO}]
+        [dim white]Para continuar, informe o ID ou Nome do seu equipamento.[/dim white]
+        """
     )
 )
-
 console.print()
 
-equipamento_atual = Prompt.ask(
-    "[bold white]Código de série do equipamento[/bold white]"
-)
+equipamento_input = Prompt.ask("[bold white]ID ou Nome do equipamento[/bold white]")
 
-
-# ============================================================
-# LOCALIZAÇÃO DO EQUIPAMENTO
-# ============================================================
-
+equipamento_atual = None
 equipamento_cadastrado = False
 
-for i in range(len(equipamentos)):
-
-    if equipamento_atual == str(equipamentos[i]['codigo']):
-
+for eq in equipamentos:
+    if equipamento_input == str(eq['idEquipamento']) or equipamento_input.lower() == str(eq['nome']).lower():
         equipamento_cadastrado = True
-        equipamento_atual = equipamentos[i]
-        if equipamento_cadastrado:
-
-            nome_empresa = ""
-
-    for empresa in empresas:
-
-        if empresa["id"] == equipamento_atual["fk_empresa"]:
-
-            nome_empresa = empresa["razao_social"]
-            break
-
+        equipamento_atual = eq
+        break
 
 if not equipamento_cadastrado:
-
     console.print(
         Panel(
-            "[bold white]Equipamento não encontrado no sistema![/bold white]",
+            "[bold white]Equipamento não encontrado no sistema InfraWatch![/bold white]",
             title="[bold #38BDF8]InfraWatch[/bold #38BDF8]",
             border_style=AZUL_CLARO,
             style=f"on {AZUL_ESCURO}"
         )
     )
+    os._exit(0)
 
-else:
+nome_empresa = ""
+for emp in empresas:
+    if emp["idEmpresa"] == equipamento_atual["fkEmpresa"]:
+        nome_empresa = emp["nome"]
+        break
 
-    # ========================================================
-    # AUTENTICAÇÃO
-    # ========================================================
+# ============================================================
+# AUTENTICAÇÃO DO USUÁRIO
+# ============================================================
+limpar_tela()
+mostrar_banner()
 
-    limpar_tela()
+console.print(
+    Panel(
+        Align.center(
+            "[bold white]Bem-vindo à configuração do seu ambiente InfraWatch![/bold white]\n\n"
+            f"[dim white]Equipamento:[/dim white] [bold {AZUL_CLARO}]{equipamento_atual['nome']} (ID: {equipamento_atual['idEquipamento']})[/bold {AZUL_CLARO}]\n"
+            f"[dim white]Empresa:[/dim white] [bold {AZUL_CLARO}]{nome_empresa}[/bold {AZUL_CLARO}]\n\n"
+            "[dim white]Para continuar, insira suas credenciais.[/dim white]"
+        ),
+        border_style=AZUL_CLARO,
+        style=f"on {PRETO}",
+        padding=(1, 3)
+    )
+)
 
-    mostrar_banner()
+time.sleep(1)
+ipt_usuario = Prompt.ask("[bold white]Usuário ou E-mail[/bold white]")
+ipt_senha = Prompt.ask("[bold white]Senha[/bold white]")
 
+accesso = False
+usuario_logado = ""
+
+for func in funcionarios:
+    if (ipt_usuario == func["nome"] or ipt_usuario == func["email"]) and ipt_senha == func["senha"]:
+        accesso = True
+        usuario_logado = func["nome"]
+        break
+
+if not accesso:
+    console.print()
     console.print(
         Panel(
-            Align.center(
-                "[bold white]Bem-vindo à configuração do seu ambiente InfraWatch![/bold white]\n\n"
-                f"[dim white]Equipamento:[/dim white] "
-                f"[bold {AZUL_CLARO}]{equipamento_atual['codigo']}[/bold {AZUL_CLARO}]\n\n"
-                "[dim white]Para continuar, insira suas credenciais.[/dim white]"
-            ),
+            "[bold white]Você não pode acessar nosso serviço (Acesso Negado).[/bold white]",
+            title="[bold #38BDF8]ACESSO NEGADO[/bold #38BDF8]",
             border_style=AZUL_CLARO,
-            style=f"on {PRETO}",
-            padding=(1, 3)
+            style=f"on {PRETO}"
         )
     )
+    os._exit(0)
 
-    time.sleep(1)
+# ============================================================
+# CONFIRMAÇÃO DE INÍCIO DA CAPTURA
+# ============================================================
+limpar_tela()
+mostrar_banner()
 
-    ipt_usuario = Prompt.ask(
-        "[bold white]Usuário[/bold white]"
+console.print(
+    Panel(
+        f"[bold white]Olá, {usuario_logado}![/bold white]\n\n"
+        "[dim white]As informações da sua máquina serão coletadas automaticamente.[/dim white]",
+        title=f"[bold {AZUL_CLARO}]InfraWatch[/bold {AZUL_CLARO}]",
+        border_style=AZUL_CLARO,
+        style=f"on {AZUL_ESCURO}"
     )
+)
 
-    ipt_senha = getpass(
-        "Senha: "
+console.print()
+continuar = Confirm.ask("[bold white]Deseja continuar?[/bold white]", default=True)
+
+if not continuar:
+    console.print(
+        Panel("[bold white]Fechando script...[/bold white]", border_style=AZUL_CLARO, style=f"on {PRETO}")
     )
+    os._exit(0)
 
-    limpar_tela()
+# ============================================================
+# IDENTIFICA COMPONENTES DO EQUIPAMENTO
+# ============================================================
+capturar_comp = []
+for ec in equip_comp:
+    if ec['fkEquipamento'] == equipamento_atual['idEquipamento']:
+        capturar_comp.append(ec['fkComponente'])
 
-    # ========================================================
-    # CARREGAMENTO
-    # ========================================================
+# ============================================================
+# MONTAGEM DO CSV EM MEMÓRIA
+# ============================================================
+limpar_tela()
+mostrar_banner()
 
-    with console.status(
-        f"[bold {AZUL_CLARO}]Validando credenciais...[/bold {AZUL_CLARO}]",
-        spinner="dots"
-    ):
+console.print(
+    Panel("[bold white]Preparando captura dos dados...[/bold white]",
+          title=f"[bold {AZUL_CLARO}]CAPTURA[/bold {AZUL_CLARO}]",
+          border_style=AZUL_CLARO, style=f"on {AZUL_ESCURO}")
+)
+console.print()
+
+# Monta o cabeçalho do CSV
+titulo_executados = "id;data_hora"
+
+for comp_id in capturar_comp:
+    for c in componentes:
+        if comp_id == c['idComponente']:
+            titulo_executados += f";{c['nome']}"
+
+csv_buffer = io.StringIO()
+writer = csv.writer(csv_buffer, delimiter=';')
+writer.writerow(titulo_executados.split(';'))
+
+# ============================================================
+# EXECUÇÃO DA CAPTURA (5 AMOSTRAS)
+# ============================================================
+with Progress(
+    TextColumn(f"[bold {AZUL_CLARO}]Capturando[/bold {AZUL_CLARO}]"),
+    BarColumn(complete_style=AZUL_CLARO, finished_style=AZUL_CLARO),
+    TextColumn("[bold white]{task.percentage:>3.0f}%[/bold white]"),
+    TimeElapsedColumn(),
+    console=console
+) as progress:
+
+    task = progress.add_task("captura", total=5)
+
+    for i in range(5):
+        valores_capturados = []
+
+        for comp_id in capturar_comp:
+            for c in componentes:
+                if comp_id == c['idComponente']:
+                    tipo_comp = c['tipo'].upper()
+                    if tipo_comp == 'CPU':
+                        val = psutil.cpu_percent(interval=1)
+                    elif tipo_comp == 'RAM':
+                        val = psutil.virtual_memory().percent
+                    elif tipo_comp in ['ARMAZENAMENTO', 'DISCO']:
+                        val = psutil.disk_usage("/").percent
+                    else:
+                        val = 0.0
+                    valores_capturados.append(str(val))
+
+        data_hora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Escreve a linha no CSV
+        writer.writerow([equipamento_atual['idEquipamento'], data_hora] + valores_capturados)
 
         time.sleep(1)
+        progress.advance(task)
 
-        acesso = False
+console.print()
+console.print(
+    Panel("[bold white]Captura finalizada com sucesso.[/bold white]",
+          title=f"[bold {AZUL_CLARO}]CONCLUÍDO[/bold {AZUL_CLARO}]",
+          border_style=AZUL_CLARO, style=f"on {AZUL_ESCURO}")
+)
 
-        for i in range(len(funcionarios)):
+# ============================================================
+# ENVIO DO ARQUIVO CSV PARA O S3 (BRONZE)
+# ============================================================
+timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+nome_arquivo = f"captura_{timestamp}.csv"
 
-            if (
-                ipt_usuario == funcionarios[i]["nome"]
-                and
-                ipt_senha == funcionarios[i]["senha"]
-            ):
+# Exemplo de caminho: bronze/InfraWatch/1/captura_2026-10-01_19-45-00.csv
+arquivo_s3 = f"bronze/{nome_empresa}/{equipamento_atual['idEquipamento']}/{nome_arquivo}"
 
-                acesso = True
-                usuario = funcionarios[i]["nome"]
-
-
-    # ========================================================
-    # ACESSO NEGADO
-    # ========================================================
-
-    if not acesso:
-
-        console.print()
-
-        console.print(
-            Panel(
-                "[bold white]Você não pode acessar nosso serviço.[/bold white]",
-                title="[bold #38BDF8]ACESSO NEGADO[/bold #38BDF8]",
-                border_style=AZUL_CLARO,
-                style=f"on {PRETO}"
-            )
-        )
-
-        os._exit(0)
-
-
-    # ========================================================
-    # USUÁRIO AUTENTICADO
-    # ========================================================
-
-    limpar_tela()
-
-    mostrar_banner()
-
-    console.print(
-        Panel(
-            f"[bold white]Olá, {usuario}![/bold white]\n\n"
-            "[dim white]"
-            "As informações da sua máquina serão coletadas automaticamente."
-            "[/dim white]",
-            title=f"[bold {AZUL_CLARO}]InfraWatch[/bold {AZUL_CLARO}]",
-            border_style=AZUL_CLARO,
-            style=f"on {AZUL_ESCURO}"
-        )
+with console.status(f"[bold {AZUL_CLARO}]Enviando captura CSV para a zona Bronze do S3...[/bold {AZUL_CLARO}]", spinner="dots"):
+    s3.put_object(
+        Bucket=BUCKET,
+        Key=arquivo_s3,
+        Body=csv_buffer.getvalue().encode("utf-8"),
+        ContentType="text/csv"
     )
 
-    console.print()
-
-    continuar = Confirm.ask(
-        "[bold white]Deseja continuar?[/bold white]",
-        default=True
+console.print()
+console.print(
+    Panel(
+        f"[bold white]Captura enviada para o S3 com sucesso![/bold white]\n\n"
+        f"[dim white]Bucket:[/dim white] [bold {AZUL_CLARO}]{BUCKET}[/bold {AZUL_CLARO}]\n"
+        f"[dim white]Caminho Bronze:[/dim white] [bold {AZUL_CLARO}]{arquivo_s3}[/bold {AZUL_CLARO}]",
+        title=f"[bold {AZUL_CLARO}]UPLOAD CONCLUÍDO[/bold {AZUL_CLARO}]",
+        border_style=AZUL_CLARO,
+        style=f"on {PRETO}",
+        padding=(1, 2)
     )
+)
 
-
-    # ========================================================
-    # IDENTIFICA COMPONENTES DO EQUIPAMENTO
-    # ========================================================
-
-    capturar_comp = []
-
-    for i in range(len(equip_comp)):
-
-        if (
-            equip_comp[i]['fk_equipamento']
-            ==
-            equipamento_atual['id']
-        ):
-
-            capturar_comp.append(
-                equip_comp[i]['fk_componente']
-            )
-
-
-    # ========================================================
-    # INÍCIO DA CAPTURA
-    # ========================================================
-
-    if continuar:
-
-        limpar_tela()
-
-        mostrar_banner()
-
-        console.print(
-            Panel(
-                "[bold white]Preparando captura dos dados...[/bold white]",
-                title=f"[bold {AZUL_CLARO}]CAPTURA[/bold {AZUL_CLARO}]",
-                border_style=AZUL_CLARO,
-                style=f"on {AZUL_ESCURO}"
-            )
-        )
-
-        console.print()
-
-        titulo_executados = 'id;data_hora'
-
-
-        # ====================================================
-        # MONTA CABEÇALHO DO CSV
-        # ====================================================
-
-        for i in range(len(capturar_comp)):
-
-            for j in range(len(componentes)):
-
-                if capturar_comp[i] == componentes[j]['id']:
-
-                    nome_comp = componentes[j]['nome']
-                    medida_comp = componentes[j]['medida']
-
-                    titulo_executados += f';{nome_comp}'
-
-
-        # ====================================================
-        # CSV NA MEMÓRIA
-        # ====================================================
-
-        csv_buffer = io.StringIO()
-
-        writer = csv.writer(
-            csv_buffer,
-            delimiter=';'
-        )
-
-        writer.writerow(
-            titulo_executados.split(';')
-        )
-
-
-        # ====================================================
-        # CAPTURA
-        # ====================================================
-
-        with Progress(
-
-            TextColumn(
-                f"[bold {AZUL_CLARO}]Capturando[/bold {AZUL_CLARO}]"
-            ),
-
-            BarColumn(
-                complete_style=AZUL_CLARO,
-                finished_style=AZUL_CLARO
-            ),
-
-            TextColumn(
-                "[bold white]{task.percentage:>3.0f}%[/bold white]"
-            ),
-
-            TimeElapsedColumn(),
-
-            console=console
-
-        ) as progress:
-
-            task = progress.add_task(
-                "captura",
-                total=5
-            )
-
-            for i in range(0, 5):
-
-                executados = ''
-
-                for k in range(len(capturar_comp)):
-
-                    for j in range(len(componentes)):
-
-                        if (
-                            capturar_comp[k]
-                            ==
-                            componentes[j]['id']
-                        ):
-
-                            codigo_comp = componentes[j]['codigo']
-
-                            executados += (
-                                f';{eval(codigo_comp)}'
-                            )
-
-
-                # ============================================
-                # DATA / HORA
-                # ============================================
-
-                date = datetime.now()
-
-                data_hora = date.strftime(
-                    "%Y-%m-%d %H:%M:%S"
-                )
-
-
-                # ============================================
-                # ESCREVE CAPTURA NO CSV
-                # ============================================
-
-                writer.writerow(
-                    [
-                        equipamento_atual['id'],
-                        data_hora
-                    ]
-                    +
-                    executados
-                    .lstrip(';')
-                    .split(';')
-                )
-
-
-                time.sleep(1)
-
-                progress.advance(task)
-
-
-        # ====================================================
-        # FINALIZAÇÃO
-        # ====================================================
-
-        console.print()
-
-        console.print(
-            Panel(
-                "[bold white]"
-                "Captura finalizada com sucesso."
-                "[/bold white]",
-                title=f"[bold {AZUL_CLARO}]CONCLUÍDO[/bold {AZUL_CLARO}]",
-                border_style=AZUL_CLARO,
-                style=f"on {AZUL_ESCURO}"
-            )
-        )
-
-
-        # ====================================================
-        # NOME DO ARQUIVO
-        # ====================================================
-
-        timestamp = datetime.now().strftime(
-            "%Y-%m-%d_%H-%M-%S"
-        )
-
-        nome_arquivo = f"captura_{timestamp}.csv"
-
-        
-        # ====================================================
-        # CAMINHO DO S3
-        # ====================================================
-
-        arquivo_s3 = (
-            f"bronze/"
-            f"{nome_empresa}/"
-            f"{equipamento_atual['codigo']}/"
-            f"{nome_arquivo}"
-        )
-
-
-        # ====================================================
-        # ENVIA CSV PARA O S3
-        # ====================================================
-
-        with console.status(
-            f"[bold {AZUL_CLARO}]Enviando captura para o S3...[/bold {AZUL_CLARO}]",
-            spinner="dots"
-        ):
-
-            s3.put_object(
-                Bucket=BUCKET,
-                Key=arquivo_s3,
-                Body=csv_buffer.getvalue().encode("utf-8"),
-                ContentType="text/csv"
-            )
-
-
-        # ====================================================
-        # SUCESSO
-        # ====================================================
-
-        console.print()
-
-        console.print(
-            Panel(
-                f"[bold white]"
-                "Captura enviada para o S3 com sucesso!"
-                "[/bold white]\n\n"
-                f"[dim white]Bucket:[/dim white] "
-                f"[bold {AZUL_CLARO}]{BUCKET}[/bold {AZUL_CLARO}]\n"
-                f"[dim white]Arquivo:[/dim white] "
-                f"[bold {AZUL_CLARO}]{arquivo_s3}[/bold {AZUL_CLARO}]",
-                title=f"[bold {AZUL_CLARO}]UPLOAD CONCLUÍDO[/bold {AZUL_CLARO}]",
-                border_style=AZUL_CLARO,
-                style=f"on {PRETO}",
-                padding=(1, 2)
-            )
-        )
-
-        console.print()
-
-        console.print(
-            Align.center(
-                "[dim white]"
-                "Obrigada por escolher a InfraWatch!"
-                "[/dim white]"
-            )
-        )
-
-
-    # ========================================================
-    # USUÁRIO NÃO QUER CONTINUAR
-    # ========================================================
-
-    else:
-
-        console.print()
-
-        console.print(
-            Panel(
-                "[bold white]Fechando script...[/bold white]",
-                title=f"[bold {AZUL_CLARO}]InfraWatch[/bold {AZUL_CLARO}]",
-                border_style=AZUL_CLARO,
-                style=f"on {PRETO}"
-            )
-        )
-
-        os._exit(0)
+console.print(Align.center("[dim white]Obrigada por escolher a InfraWatch![/dim white]"))
