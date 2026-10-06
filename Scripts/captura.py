@@ -3,6 +3,7 @@ import csv
 from datetime import datetime
 import time
 import os
+import socket # para pegar hostname da maquina atual. 
 #from getpass import getpass
 import boto3
 import io
@@ -58,6 +59,9 @@ s3 = boto3.client(
 )
 
 
+# 1. CAPTURA DO HOSTNAME DA MÁQUINA ATUAL
+
+hostname_atual = socket.gethostname()
 
 # ============================================================
 # CONEXÃO COM O BANCO DE DADOS NOVO (InfraWatch)
@@ -77,11 +81,11 @@ bd = mysql.connect(
 
 cursor = bd.cursor()
 
-# 1. Busca Equipamentos no schema novo
-cursor.execute("SELECT idEquipamento, nome, fkEmpresa FROM equipamento;")
+# 1. Busca Equipamentos no schema novo e hostname
+cursor.execute("SELECT idEquipamento, nome, hostname, fkEmpresa FROM equipamento;")
 equipamentos = cursor.fetchall()
 
-# 2. Busca Componentes no schema novo
+# 2. Busca Componentes no schema novo 
 cursor.execute("SELECT idComponente, nome, tipo FROM componente;")
 componentes = cursor.fetchall()
 
@@ -97,72 +101,36 @@ funcionarios = cursor.fetchall()
 cursor.execute("SELECT idEmpresa, nome FROM empresa;")
 empresas = cursor.fetchall()
 
-cursor.close()
-bd.close()
+
+
+
+
+# print (equipamentos)
+
 
 # ============================================================
-# TELA INICIAL: IDENTIFICAÇÃO DO EQUIPAMENTO
+# TELA INICIAL: IVALIDAÇÃO DO USUARIO 
 # ============================================================
-limpar_tela()
-mostrar_banner()
-console.print(
-    Align.center(
-        f"""
-        [bold white]Olá, usuário.[/bold white]
-        [bold {AZUL_CLARO}]Bem-vindo à configuração do seu ambiente InfraWatch![/bold {AZUL_CLARO}]
-        [dim white]Para continuar, informe o ID ou Nome do seu equipamento.[/dim white]
-        """
-    )
-)
-console.print()
 
-equipamento_input = Prompt.ask("[bold white]ID ou Nome do equipamento[/bold white]")
 
-equipamento_atual = None
-equipamento_cadastrado = False
-
-for eq in equipamentos:
-    if equipamento_input == str(eq['idEquipamento']) or equipamento_input.lower() == str(eq['nome']).lower():
-        equipamento_cadastrado = True
-        equipamento_atual = eq
-        break
-
-if not equipamento_cadastrado:
-    console.print(
-        Panel(
-            "[bold white]Equipamento não encontrado no sistema InfraWatch![/bold white]",
-            title="[bold #38BDF8]InfraWatch[/bold #38BDF8]",
-            border_style=AZUL_CLARO,
-            style=f"on {AZUL_ESCURO}"
-        )
-    )
-    os._exit(0)
-
-nome_empresa = ""
-for emp in empresas:
-    if emp["idEmpresa"] == equipamento_atual["fkEmpresa"]:
-        nome_empresa = emp["nome"]
-        break
-
-# ============================================================
-# AUTENTICAÇÃO DO USUÁRIO
-# ============================================================
 limpar_tela()
 mostrar_banner()
 
 console.print(
     Panel(
         Align.center(
-            "[bold white]Bem-vindo à configuração do seu ambiente InfraWatch![/bold white]\n\n"
-            f"[dim white]Equipamento:[/dim white] [bold {AZUL_CLARO}]{equipamento_atual['nome']} (ID: {equipamento_atual['idEquipamento']})[/bold {AZUL_CLARO}]\n"
-            f"[dim white]Empresa:[/dim white] [bold {AZUL_CLARO}]{nome_empresa}[/bold {AZUL_CLARO}]\n\n"
-            "[dim white]Para continuar, insira suas credenciais.[/dim white]"
-        ),
+            "[bold white]Bem-vindo à InfraWatch![/bold white]\n\\n"
+            "[dim white]Insira suas credenciais para continuar.[/dim white] "
+        ), 
         border_style=AZUL_CLARO,
         style=f"on {PRETO}",
-        padding=(1, 3)
+        padding=(1, 3),
+
     )
 )
+
+
+
 
 time.sleep(1)
 ipt_usuario = Prompt.ask("[bold white]Usuário ou E-mail[/bold white]")
@@ -171,13 +139,24 @@ ipt_senha = Prompt.ask("[bold white]Senha[/bold white]")
 accesso = False
 usuario_logado = ""
 
-for func in funcionarios:
-    if (ipt_usuario == func["nome"] or ipt_usuario == func["email"]) and ipt_senha == func["senha"]:
-        accesso = True
-        usuario_logado = func["nome"]
-        break
+# Validação do Usuário na Tabela 'usuario' e busca do nome da Empresa
 
-if not accesso:
+cursor.execute(
+    """
+    SELECT u.idUsuario, u.nome, u.email, u.senha, u.fkEmpresa, e.nome AS
+    nomeEmpresa 
+    FROM usuario u
+    JOIN empresa e ON u.fkEmpresa = e.idEmpresa 
+    WHERE (u.email = %s OR u.nome = %s) AND u.senha = %s; """, 
+    (ipt_usuario, ipt_usuario, ipt_senha),
+
+
+    
+)
+
+usuario_logado = cursor.fetchone()
+
+if not usuario_logado:
     console.print()
     console.print(
         Panel(
@@ -188,6 +167,248 @@ if not accesso:
         )
     )
     os._exit(0)
+    cursor.close()
+    bd.close()
+    
+    
+
+    
+fk_empresa = usuario_logado["fkEmpresa"]
+nome_empresa = usuario_logado["nomeEmpresa"]
+nome_usuario = usuario_logado["nome"]
+
+
+
+
+
+
+# ============================================================
+# Lista os equipamentos da empresa do usuario 
+# ============================================================
+cursor.execute( # busca os servidores da empresa do usuario; que não tem hostname cadastrado e as que tem o mesmo hostname do equipamento atual 
+    """
+    SELECT 
+        idEquipamento, 
+        nome, 
+        hostname, 
+        fkEmpresa 
+    FROM equipamento 
+    WHERE fkEmpresa = %s 
+      AND (hostname IS NULL OR hostname = '' OR hostname = %s); 
+    """,
+    (fk_empresa, hostname_atual),
+)
+equipamentos_disponiveis = cursor.fetchall()
+
+limpar_tela()
+mostrar_banner()
+
+console.print(
+    Panel(
+        f"[bold white]Olá, {nome_usuario}![/bold white]\n"
+        f"[dim white]Empresa:[/dim white] [bold {AZUL_CLARO}]{nome_empresa}[/bold {AZUL_CLARO}]\n"
+        f"[dim white]Hostname da máquina atual:[/dim white] [bold {AZUL_CLARO}]{hostname_atual}[/bold {AZUL_CLARO}]\n\n"
+        "[bold white]Abaixo estão os equipamentos disponíveis. Escolha uma opção:[/bold white]",
+        border_style=AZUL_CLARO,
+        style=f"on {AZUL_ESCURO}",
+    )
+)
+
+console.print("[bold yellow]0.[/bold yellow] Cadastrar um [bold green]NOVO servidor[/bold green]")
+
+for equip, eq in enumerate(equipamentos_disponiveis, start=1):
+    status_host = (
+        f"(Hostname: {eq['hostname']})"
+        if eq["hostname"]
+        else "[Novo - Sem Hostname registrado]" # exibe na tela os servidores sem ou com host igual ao da maquina 
+    )
+    console.print(f"[bold yellow]{equip}.[/bold yellow] {eq['nome']} {status_host}")
+
+opcao_equipamento = Prompt.ask(
+    "\n[bold white]Digite o número do servidor desejado ou 0 para cadastrar um novo[/bold white]",
+    default="0",
+)
+equipamento_atual = None
+
+
+# ============================================================ 
+# 4. VALIDAÇÃO OU CADASTRO DO SERVIDOR 
+# ============================================================ 
+if opcao_equipamento == "0": 
+    # Opção para cadastrar um novo servidor 
+    console.print("\n[bold #38BDF8]--- Cadastro de Novo Servidor ---[/bold #38BDF8]") 
+    
+    # Gera um nome pré-definido (ex: NomeEmpresa.server_id#X) 
+    cursor.execute( 
+        "SELECT COUNT(*) AS total FROM equipamento WHERE fkEmpresa = %s;", 
+        (fk_empresa,), 
+    ) 
+    qtd_equip = cursor.fetchone()["total"] + 1 
+    nome_padrao = f"{nome_empresa}.server_id#{qtd_equip}" 
+    
+    nome_novo_servidor = Prompt.ask( 
+        "[bold white]Nome para o novo servidor[/bold white]", 
+        default=nome_padrao 
+    ) 
+    
+    cursor.execute( 
+        """ 
+        INSERT INTO equipamento (nome, tipo, status, hostname, fkEmpresa) 
+        VALUES (%s, 'Servidor', 'Online', %s, %s); 
+        """, 
+        (nome_novo_servidor, hostname_atual, fk_empresa), 
+    ) 
+    bd.commit() 
+    
+    id_novo_eq = cursor.lastrowid 
+    equipamento_atual = { 
+        "idEquipamento": id_novo_eq, 
+        "nome": nome_novo_servidor, 
+        "hostname": hostname_atual, 
+        "fkEmpresa": fk_empresa, 
+    } 
+    console.print( 
+        f"[bold green]Novo servidor '{nome_novo_servidor}' cadastrado com sucesso! (ID: {id_novo_eq})[/bold green]\n" 
+    ) 
+else: 
+    try: 
+        idx_selecionado = int(opcao_equipamento) - 1 
+        eq_selecionado = equipamentos_disponiveis[idx_selecionado] 
+    except (ValueError, IndexError): 
+        console.print( 
+            "[bold red]Opção de equipamento inválida! Encerrando o script.[/bold red]" 
+        ) 
+        cursor.close() 
+        bd.close() 
+        sys.exit(1) 
+    
+    # Validação do Hostname 
+    if eq_selecionado["hostname"] and eq_selecionado["hostname"] != hostname_atual: 
+        console.print( 
+            Panel( 
+                f"[bold red]ERRO DE VALIDAÇÃO![/bold red]\n\n" 
+                f"O servidor '[bold white]{eq_selecionado['nome']}[/bold white]' já está cadastrado com o hostname '[bold yellow]{eq_selecionado['hostname']}[/bold yellow]'.\n" 
+                f"Este computador atual tem o hostname '[bold yellow]{hostname_atual}[/bold yellow]'.\n" 
+                f"O script não pode ser executado para esta máquina.", 
+                title="[bold red]HOSTNAME INCOMPATÍVEL[/bold red]", 
+                border_style="red", 
+                style=f"on {PRETO}", 
+            ) 
+        ) 
+        cursor.close() 
+        bd.close() 
+        sys.exit(1) 
+    
+    # Se o servidor não tinha hostname gravado, vincula o hostname atual 
+    if not eq_selecionado["hostname"]: 
+        cursor.execute( 
+            "UPDATE equipamento SET hostname = %s WHERE idEquipamento = %s;", 
+            (hostname_atual, eq_selecionado["idEquipamento"]), 
+        ) 
+        bd.commit() 
+        eq_selecionado["hostname"] = hostname_atual 
+        console.print( 
+            f"[bold green]Hostname '{hostname_atual}' associado com sucesso ao servidor '{eq_selecionado['nome']}'![/bold green]\n" 
+        ) 
+    
+    equipamento_atual = eq_selecionado 
+
+
+# ============================================================ 
+# 5. SELEÇÃO E CONFIGURAÇÃO DE COMPONENTES E MÉTRICAS 
+# ============================================================ 
+componentes_selecionados_objs = [] 
+
+if opcao_equipamento == "0": 
+    cursor.execute("SELECT idComponente, nome, tipo FROM componente;") 
+    componentes_catalogo = cursor.fetchall() 
+    
+    console.print( 
+        Panel( 
+            "[bold white]Configuração de Métricas para Novo Servidor[/bold white]\n" 
+            "[dim white]Escolha os componentes e defina os limites de alerta desejados.[/dim white]", 
+            border_style=AZUL_CLARO, 
+            style=f"on {AZUL_ESCURO}", 
+        ) 
+    ) 
+    
+    for comp in componentes_catalogo: 
+        if Confirm.ask( 
+            f"[bold white]Deseja monitorar [bold {AZUL_CLARO}]{comp['nome']}[/bold {AZUL_CLARO}] ({comp['tipo']})?[/bold white]", 
+            default=True, 
+        ): 
+            componentes_selecionados_objs.append(comp) 
+            tipo_upper = comp["tipo"].upper() 
+            
+            # Nome da métrica gerado automaticamente pelo sistema (sem prompt para o cliente) 
+            if tipo_upper == "CPU": 
+                nome_metrica = "USO_CPU" 
+                sugestao_unidade = "%" 
+            elif tipo_upper == "RAM": 
+                nome_metrica = "USO_RAM" 
+                sugestao_unidade = "%" 
+            elif tipo_upper in ["DISCO", "ARMAZENAMENTO"]: 
+                nome_metrica = "USO_DISCO" 
+                sugestao_unidade = "%" 
+            elif tipo_upper == "REDE": 
+                nome_metrica = "USO_REDE" 
+                sugestao_unidade = "%" 
+            elif tipo_upper == "TEMPERATURA": 
+                nome_metrica = "TEMPERATURA_CPU" 
+                sugestao_unidade = "°C" 
+            else: 
+                nome_metrica = f"USO_{tipo_upper}" 
+                sugestao_unidade = "%" 
+            
+            console.print(f"\n[bold #38BDF8]--- Configurando Alertas: {comp['nome']} ({nome_metrica}) ---[/bold #38BDF8]") 
+            
+            # O cliente cadastra apenas limites e unidade de medida 
+            lim_atencao = float(Prompt.ask("[bold white]Limite de Atenção[/bold white]", default="70.0")) 
+            lim_critico = float(Prompt.ask("[bold white]Limite Crítico[/bold white]", default="90.0")) 
+            unidade = Prompt.ask("[bold white]Unidade de medida (ex: %, GB, °C)[/bold white]", default=sugestao_unidade) 
+            
+            cursor.execute( 
+                """ 
+                INSERT INTO parametro_alerta (nomeMetrica, limite_atencao, limite_critico, unidade, ativo, fkEquipamento, fkComponente) 
+                VALUES (%s, %s, %s, %s, 1, %s, %s); 
+                """, 
+                ( 
+                    nome_metrica, 
+                    lim_atencao, 
+                    lim_critico, 
+                    unidade, 
+                    equipamento_atual["idEquipamento"], 
+                    comp["idComponente"], 
+                ), 
+            ) 
+            bd.commit() 
+            console.print(f"[bold green]Métrica '{nome_metrica}' salva com sucesso! [/bold green]\n") 
+else: 
+    # Servidor existente: busca os parâmetros já salvos no banco de dados sem fazer perguntas no terminal 
+    cursor.execute( 
+        """ 
+        SELECT DISTINCT c.idComponente, c.nome, c.tipo 
+        FROM componente c 
+        JOIN parametro_alerta pa ON c.idComponente = pa.fkComponente 
+        WHERE pa.fkEquipamento = %s AND pa.ativo = 1; 
+        """, 
+        (equipamento_atual["idEquipamento"],), 
+    ) 
+    componentes_selecionados_objs = cursor.fetchall() 
+    
+    if not componentes_selecionados_objs: 
+        console.print("[bold yellow]Aviso: Nenhum componente ativo configurado no banco. Carregando lista geral...[/bold yellow]") 
+        cursor.execute("SELECT idComponente, nome, tipo FROM componente;") 
+        componentes_selecionados_objs = cursor.fetchall() 
+        
+    if not componentes_selecionados_objs: 
+        console.print("[bold yellow]Nenhum componente selecionado para monitorar. Encerrando.[/bold yellow]") 
+        cursor.close() 
+        bd.close() 
+        sys.exit(0) 
+
+cursor.close() 
+bd.close()
 
 # ============================================================
 # CONFIRMAÇÃO DE INÍCIO DA CAPTURA
