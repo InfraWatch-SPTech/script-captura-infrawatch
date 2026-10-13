@@ -1,3 +1,4 @@
+
 import psutil
 import csv
 from datetime import datetime
@@ -8,6 +9,7 @@ import socket # para pegar hostname da maquina atual.
 import boto3
 import io
 import pymysql as mysql
+import sys
 
 # Rich para interface no terminal
 from rich.console import Console
@@ -55,6 +57,7 @@ BUCKET = "infrawatch-server-s3"
 
 s3 = boto3.client(
 "s3",
+
 # coloque as credenciais aqui da aws 
 )
 
@@ -72,7 +75,7 @@ console.print(
 )
 
 bd = mysql.connect(
-    host='localhost', # colocar ip public da aws; 
+    host='13.223.58.89',
     user='infra_watch_captura',
     password='Urubu100',
     database='InfraWatch',
@@ -108,9 +111,9 @@ empresas = cursor.fetchall()
 # print (equipamentos)
 
 
-# ============================================================
-# TELA INICIAL: IVALIDAÇÃO DO USUARIO 
-# ============================================================
+
+# TELA INICIAL: VALIDAÇÃO DO USUARIO 
+
 
 
 limpar_tela()
@@ -182,9 +185,9 @@ nome_usuario = usuario_logado["nome"]
 
 
 
-# ============================================================
+
 # Lista os equipamentos da empresa do usuario 
-# ============================================================
+
 cursor.execute( # busca os servidores da empresa do usuario; que não tem hostname cadastrado e as que tem o mesmo hostname do equipamento atual 
     """
     SELECT 
@@ -231,73 +234,61 @@ opcao_equipamento = Prompt.ask(
 equipamento_atual = None
 
 
-# ============================================================ 
 # 4. VALIDAÇÃO OU CADASTRO DO SERVIDOR 
-# ============================================================ 
-if opcao_equipamento == "0": 
-    # Opção para cadastrar um novo servidor 
-    console.print("\n[bold #38BDF8]--- Cadastro de Novo Servidor ---[/bold #38BDF8]") 
-    
-    # Gera um nome pré-definido (ex: NomeEmpresa.server_id#X) 
-    cursor.execute( 
-        "SELECT COUNT(*) AS total FROM equipamento WHERE fkEmpresa = %s;", 
-        (fk_empresa,), 
-    ) 
-    qtd_equip = cursor.fetchone()["total"] + 1 
-    nome_padrao = f"{nome_empresa}.server_id#{qtd_equip}" 
-    
-    nome_novo_servidor = Prompt.ask( 
-        "[bold white]Nome para o novo servidor[/bold white]", 
-        default=nome_padrao 
-    ) 
-    
-    cursor.execute( 
-        """ 
-        INSERT INTO equipamento (nome, tipo, status, hostname, fkEmpresa) 
-        VALUES (%s, 'Servidor', 'Online', %s, %s); 
-        """, 
-        (nome_novo_servidor, hostname_atual, fk_empresa), 
-    ) 
-    bd.commit() 
-    
-    id_novo_eq = cursor.lastrowid 
-    equipamento_atual = { 
-        "idEquipamento": id_novo_eq, 
-        "nome": nome_novo_servidor, 
-        "hostname": hostname_atual, 
-        "fkEmpresa": fk_empresa, 
-    } 
-    console.print( 
-        f"[bold green]Novo servidor '{nome_novo_servidor}' cadastrado com sucesso! (ID: {id_novo_eq})[/bold green]\n" 
-    ) 
-else: 
-    try: 
-        idx_selecionado = int(opcao_equipamento) - 1 
-        eq_selecionado = equipamentos_disponiveis[idx_selecionado] 
-    except (ValueError, IndexError): 
-        console.print( 
-            "[bold red]Opção de equipamento inválida! Encerrando o script.[/bold red]" 
-        ) 
-        cursor.close() 
-        bd.close() 
-        sys.exit(1) 
-    
-    # Validação do Hostname 
-    if eq_selecionado["hostname"] and eq_selecionado["hostname"] != hostname_atual: 
-        console.print( 
-            Panel( 
-                f"[bold red]ERRO DE VALIDAÇÃO![/bold red]\n\n" 
-                f"O servidor '[bold white]{eq_selecionado['nome']}[/bold white]' já está cadastrado com o hostname '[bold yellow]{eq_selecionado['hostname']}[/bold yellow]'.\n" 
-                f"Este computador atual tem o hostname '[bold yellow]{hostname_atual}[/bold yellow]'.\n" 
-                f"O script não pode ser executado para esta máquina.", 
-                title="[bold red]HOSTNAME INCOMPATÍVEL[/bold red]", 
-                border_style="red", 
-                style=f"on {PRETO}", 
-            ) 
-        ) 
-        cursor.close() 
-        bd.close() 
-        sys.exit(1) 
+
+if opcao_equipamento == "0":
+    # Cadastrar novo servidor
+    console.print("\n[bold #38BDF8]--- Cadastro de Novo Servidor ---[/bold #38BDF8]")
+    cursor.execute(
+        "SELECT COUNT(*) AS total FROM equipamento WHERE fkEmpresa = %s;",
+        (fk_empresa,),
+    )
+    qtd_equip = cursor.fetchone()["total"] + 1
+    nome_padrao = f"{nome_empresa}.server_id#{qtd_equip}"
+    nome_novo_servidor = Prompt.ask(
+        "[bold white]Nome para o novo servidor[/bold white]", default=nome_padrao
+    )
+    cursor.execute(
+        """
+        INSERT INTO equipamento (nome, tipo, status, hostname, fkEmpresa)
+        VALUES (%s, 'Servidor', 'Online', %s, %s);
+        """,
+        (nome_novo_servidor, hostname_atual, fk_empresa),
+    )
+    bd.commit()
+    id_novo_eq = cursor.lastrowid
+    equipamento_atual = {
+        "idEquipamento": id_novo_eq,
+        "nome": nome_novo_servidor,
+        "hostname": hostname_atual,
+        "fkEmpresa": fk_empresa,
+    }
+    console.print(
+        f"[bold green]Novo servidor '{nome_novo_servidor}' cadastrado com sucesso! (ID: {id_novo_eq})[/bold green]\n"
+    )
+else:
+    # Seleção de servidor existente da lista
+    try:
+        idx_selecionado = int(opcao_equipamento) - 1
+        eq_selecionado = equipamentos_disponiveis[idx_selecionado]
+    except (ValueError, IndexError):
+        console.print("[bold red]Opção de equipamento inválida! Encerrando o script.[/bold red]")
+        cursor.close()
+        bd.close()
+        sys.exit(1)
+
+    # Se o servidor selecionado não tinha hostname registrado, vincula o atual
+    if not eq_selecionado["hostname"]:
+        cursor.execute(
+            "UPDATE equipamento SET hostname = %s WHERE idEquipamento = %s;",
+            (hostname_atual, eq_selecionado["idEquipamento"]),
+        )
+        bd.commit()
+        eq_selecionado["hostname"] = hostname_atual
+        console.print(
+            f"[bold green]Hostname '{hostname_atual}' associado com sucesso ao servidor '{eq_selecionado['nome']}'![/bold green]\n"
+        )
+    equipamento_atual = eq_selecionado
     
     # Se o servidor não tinha hostname gravado, vincula o hostname atual 
     if not eq_selecionado["hostname"]: 
@@ -314,9 +305,7 @@ else:
     equipamento_atual = eq_selecionado 
 
 
-# ============================================================ 
 # 5. SELEÇÃO E CONFIGURAÇÃO DE COMPONENTES E MÉTRICAS 
-# ============================================================ 
 componentes_selecionados_objs = [] 
 
 if opcao_equipamento == "0": 
@@ -340,7 +329,7 @@ if opcao_equipamento == "0":
             componentes_selecionados_objs.append(comp) 
             tipo_upper = comp["tipo"].upper() 
             
-            # Nome da métrica gerado automaticamente pelo sistema (sem prompt para o cliente) 
+           
             if tipo_upper == "CPU": 
                 nome_metrica = "USO_CPU" 
                 sugestao_unidade = "%" 
@@ -356,13 +345,16 @@ if opcao_equipamento == "0":
             elif tipo_upper == "TEMPERATURA": 
                 nome_metrica = "TEMPERATURA_CPU" 
                 sugestao_unidade = "°C" 
+            elif tipo_upper == "PROCESSOS": 
+                nome_metrica = "PROCESSOS_ATIVOS" 
+                sugestao_unidade = "Dict" 
             else: 
-                nome_metrica = f"USO_{tipo_upper}" 
+                nome_metrica = f"USO_{tipo_upper}" # campo nome metrica no banco de dados 
                 sugestao_unidade = "%" 
             
             console.print(f"\n[bold #38BDF8]--- Configurando Alertas: {comp['nome']} ({nome_metrica}) ---[/bold #38BDF8]") 
             
-            # O cliente cadastra apenas limites e unidade de medida 
+            # cadastra apenas limites e unidade de medida 
             lim_atencao = float(Prompt.ask("[bold white]Limite de Atenção[/bold white]", default="70.0")) 
             lim_critico = float(Prompt.ask("[bold white]Limite Crítico[/bold white]", default="90.0")) 
             unidade = Prompt.ask("[bold white]Unidade de medida (ex: %, GB, °C)[/bold white]", default=sugestao_unidade) 
@@ -384,7 +376,7 @@ if opcao_equipamento == "0":
             bd.commit() 
             console.print(f"[bold green]Métrica '{nome_metrica}' salva com sucesso! [/bold green]\n") 
 else: 
-    # Servidor existente: busca os parâmetros já salvos no banco de dados sem fazer perguntas no terminal 
+    # Servidor existente: busca os parâmetros já salvos no banco de dados 
     cursor.execute( 
         """ 
         SELECT DISTINCT c.idComponente, c.nome, c.tipo 
@@ -410,13 +402,13 @@ else:
 cursor.close() 
 bd.close()
 
-# ============================================================
+
 # CONFIRMAÇÃO DE INÍCIO DA CAPTURA
-# ============================================================
+
 limpar_tela()
 mostrar_banner()
 
-console.print(
+console.print(                                                                                                                                                                                                                       
     Panel(
         f"[bold white]Olá, {usuario_logado}![/bold white]\n\n"
         "[dim white]As informações da sua máquina serão coletadas automaticamente.[/dim white]",
@@ -468,6 +460,49 @@ csv_buffer = io.StringIO()
 writer = csv.writer(csv_buffer, delimiter=';')
 writer.writerow(titulo_executados.split(';'))
 
+
+# ============================================================
+# FUNÇÃO PARA CAPTURAR PROCESSOS E GERAR .CSV
+# ============================================================
+enviar_processos = False
+import os
+import csv
+import io
+import psutil
+
+def capturar_processos():
+    infos_processos = []
+    for proc in psutil.process_iter(['pid', 'name']):
+        try:
+            p = psutil.Process(proc.info['pid'])
+            proc_ram = round(p.memory_percent(), 2)
+            proc_path = p.exe() if p.exe() else 'N/A'
+            proc_tam_mb = 0.0
+            if proc_path != 'N/A' and os.path.exists(proc_path):
+                proc_tam_bytes = os.path.getsize(proc_path)
+                proc_tam_mb = round(proc_tam_bytes / (1024 * 1024), 2)
+            
+            # MUDANÇA 1: Passar como lista [...] em vez de dicionário {...}
+            infos_processos.append([
+                proc.info['pid'],
+                proc.info['name'],
+                proc_ram,
+                proc_tam_mb,
+                proc_path
+            ])
+        except Exception:
+            pass
+            
+    csv_processos = io.StringIO()
+    writer = csv.writer(csv_processos, delimiter=';')
+    writer.writerow(['PID', 'Processo', 'RAM', 'TAMANHO', 'CAMINHO'])
+    
+    # MUDANÇA 2: 'writer' com w minúsculo (estava Writer)
+    writer.writerows(infos_processos)
+    
+    # MUDANÇA 3: Retornar a variável para ela existir fora da função
+    return csv_processos
+
 # ============================================================
 # EXECUÇÃO DA CAPTURA (5 AMOSTRAS)
 # ============================================================
@@ -478,40 +513,34 @@ with Progress(
     TimeElapsedColumn(),
     console=console
 ) as progress:
-
     task = progress.add_task("captura", total=5)
-
     for i in range(5):
         valores_capturados = []
-
         for comp_id in capturar_comp:
             for c in componentes:
                 if comp_id == c['idComponente']:
                     tipo_comp = c['tipo'].upper()
                     if tipo_comp == 'CPU':
                         val = psutil.cpu_percent(interval=1)
+                        valores_capturados.append(str(val))
                     elif tipo_comp == 'RAM':
                         val = psutil.virtual_memory().percent
+                        valores_capturados.append(str(val))
                     elif tipo_comp in ['ARMAZENAMENTO', 'DISCO']:
                         val = psutil.disk_usage("/").percent
+                        valores_capturados.append(str(val))
+                    elif tipo_comp == 'PROCESSOS':
+                        csv_processos = capturar_processos()
+                        enviar_processos = True
                     else:
                         val = 0.0
-                    valores_capturados.append(str(val))
-
+                        valores_capturados.append(str(val))
+        
         data_hora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        # Escreve a linha no CSV
+        # Escreve a linha completa com ID, data_hora e todas as métricas capturadas
         writer.writerow([equipamento_atual['idEquipamento'], data_hora] + valores_capturados)
-
         time.sleep(1)
         progress.advance(task)
-
-console.print()
-console.print(
-    Panel("[bold white]Captura finalizada com sucesso.[/bold white]",
-          title=f"[bold {AZUL_CLARO}]CONCLUÍDO[/bold {AZUL_CLARO}]",
-          border_style=AZUL_CLARO, style=f"on {AZUL_ESCURO}")
-)
 
 # ============================================================
 # ENVIO DO ARQUIVO CSV PARA O S3 (BRONZE)
@@ -520,7 +549,7 @@ timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 nome_arquivo = f"captura_{timestamp}.csv"
 
 # Exemplo de caminho: bronze/InfraWatch/1/captura_2026-10-01_19-45-00.csv
-arquivo_s3 = f"bronze/{nome_empresa}/{equipamento_atual['idEquipamento']}/{nome_arquivo}"
+arquivo_s3 = f"bronze/hardware/{nome_empresa}/{equipamento_atual['idEquipamento']}/{nome_arquivo}"
 
 with console.status(f"[bold {AZUL_CLARO}]Enviando captura CSV para a zona Bronze do S3...[/bold {AZUL_CLARO}]", spinner="dots"):
     s3.put_object(
@@ -529,6 +558,18 @@ with console.status(f"[bold {AZUL_CLARO}]Enviando captura CSV para a zona Bronze
         Body=csv_buffer.getvalue().encode("utf-8"),
         ContentType="text/csv"
     )
+
+nome_arquivo_processos = f"captura_processos_{timestamp}.csv"
+arquivo_processos_s3 = f"bronze/processo/{nome_empresa}/{equipamento_atual['idEquipamento']}/{nome_arquivo_processos}"
+
+if (enviar_processos) :
+    with console.status(f"[bold {AZUL_CLARO}]Enviando processos CSV para a zona Bronze do S3...[/bold {AZUL_CLARO}]", spinner="dots"):
+        s3.put_object(
+            Bucket=BUCKET,
+            Key=arquivo_processos_s3,
+            Body=csv_processos.getvalue().encode("utf-8"),
+            ContentType="text/csv"
+        )
 
 console.print()
 console.print(
