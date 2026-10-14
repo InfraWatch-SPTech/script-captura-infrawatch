@@ -75,7 +75,7 @@ console.print(
 )
 
 bd = mysql.connect(
-    host='13.223.58.89',
+    host='',
     user='infra_watch_captura',
     password='Urubu100',
     database='InfraWatch',
