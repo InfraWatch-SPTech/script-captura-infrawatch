@@ -4,12 +4,12 @@ import csv
 from datetime import datetime
 import time
 import os
-import socket # para pegar hostname da maquina atual. 
-#from getpass import getpass
+import uuid
 import boto3
 import io
 import pymysql as mysql
 import sys
+from dotenv import load_dotenv
 
 # Rich para interface no terminal
 from rich.console import Console
@@ -28,12 +28,12 @@ AZUL_CLARO = "#38BDF8"
 PRETO = "#000000"
 
 BANNER = f"""
-[bold {AZUL_CLARO}]██╗   ██╗ ██╗   ██╗[/bold {AZUL_CLARO}]
-[bold {AZUL_CLARO}]██║   ██║ ██║   ██║[/bold {AZUL_CLARO}]
-[bold {AZUL_CLARO}]██║   ██║ ██║   ██║[/bold {AZUL_CLARO}]
-[bold {AZUL_CLARO}]╚██╗ ██╔╝ ╚██╗ ██╔╝[/bold {AZUL_CLARO}]
-[bold {AZUL_CLARO}] ╚████╔╝   ╚████╔╝[/bold {AZUL_CLARO}]
-[bold {AZUL_CLARO}]  ╚═══╝     ╚═══╝[/bold {AZUL_CLARO}]
+[bold {AZUL_CLARO}]██╗   ██╗██╗   ██╗[/bold {AZUL_CLARO}]
+[bold {AZUL_CLARO}]██║   ██║██║   ██║[/bold {AZUL_CLARO}]
+[bold {AZUL_CLARO}]██║   ██║██║   ██║[/bold {AZUL_CLARO}]
+[bold {AZUL_CLARO}]╚██╗ ██╔╝╚██╗ ██╔╝[/bold {AZUL_CLARO}]
+[bold {AZUL_CLARO}] ╚████╔╝  ╚████╔╝[/bold {AZUL_CLARO}]
+[bold {AZUL_CLARO}]  ╚═══╝    ╚═══╝[/bold {AZUL_CLARO}]
 """
 
 def mostrar_banner():
@@ -50,24 +50,45 @@ def mostrar_banner():
 def limpar_tela():
     console.clear()
 
+
 # ============================================================
-# CONEXÃO COM O S3
+# 0. CARREGANDO VARIÁVEIS DE AMBIENTE
+# ============================================================
+# Carrega as variáveis do .env para o ambiente
+load_dotenv()
+
+# Variáveis AWS
+AWS_ACESS_KEY_ID = os.getenv("AWS_ACESS_KEY_ID") or None # Em caso de variável vazia, retorna None
+AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY") or None
+AWS_SESSION_TOKEN = os.getenv("AWS_SESSION_TOKEN") or None
+
+# Variáveis BD
+DB_HOST = os.getenv("BD_HOST")
+DB_USER = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_NAME = os.getenv("DB_NAME")
+
+
+
+# ============================================================
+# 1. CONEXÃO COM O S3
 # ============================================================
 BUCKET = "infrawatch-server-s3"
 
 s3 = boto3.client(
 "s3",
-
-# coloque as credenciais aqui da aws 
+aws_access_key_id=AWS_ACESS_KEY_ID,
+aws_secret_access_key=AWS_SECRET_KEY,
+aws_session_token=AWS_SESSION_TOKEN
 )
 
 
-# 1. CAPTURA DO HOSTNAME DA MÁQUINA ATUAL
 
-hostname_atual = socket.gethostname()
+# Captura o idMac único da máquina atual
+id_mac = uuid.getnode()
 
 # ============================================================
-# CONEXÃO COM O BANCO DE DADOS NOVO (InfraWatch)
+# 2. CONEXÃO COM O BANCO DE DADOS NOVO (InfraWatch)
 # ============================================================
 console.print(
     Panel("[bold white]Conectando ao banco de dados InfraWatch...[/bold white]", 
@@ -75,26 +96,22 @@ console.print(
 )
 
 bd = mysql.connect(
-    host='',
-    user='infra_watch_captura',
-    password='Urubu100',
-    database='InfraWatch',
+    host=DB_HOST,
+    user=DB_USER,
+    password=DB_PASSWORD,
+    database=DB_NAME,
     cursorclass=mysql.cursors.DictCursor
 )
 
 cursor = bd.cursor()
 
-# 1. Busca Equipamentos no schema novo e hostname
-cursor.execute("SELECT idEquipamento, nome, hostname, fkEmpresa FROM equipamento;")
+# 1. Busca Equipamentos no schema novo e idMac
+cursor.execute("SELECT idEquipamento, nome, idMac, fkEmpresa FROM equipamento;")
 equipamentos = cursor.fetchall()
 
 # 2. Busca Componentes no schema novo 
-cursor.execute("SELECT idComponente, nome, tipo FROM componente;")
+cursor.execute("SELECT idComponente, nome, tipo, medida, codigo FROM componente;")
 componentes = cursor.fetchall()
-
-# 3. Busca Mapeamento Equipamento-Componente via parametro_alerta
-cursor.execute("SELECT DISTINCT fkComponente, fkEquipamento FROM parametro_alerta WHERE ativo = 1;")
-equip_comp = cursor.fetchall()
 
 # 4. Busca Usuários
 cursor.execute("SELECT nome, email, senha, fkEmpresa FROM usuario;")
@@ -106,15 +123,9 @@ empresas = cursor.fetchall()
 
 
 
-
-
-# print (equipamentos)
-
-
-
-# TELA INICIAL: VALIDAÇÃO DO USUARIO 
-
-
+# ============================================================
+# 3. VALIDAÇÃO DO USUARIO
+# ============================================================
 
 limpar_tela()
 mostrar_banner()
@@ -122,7 +133,7 @@ mostrar_banner()
 console.print(
     Panel(
         Align.center(
-            "[bold white]Bem-vindo à InfraWatch![/bold white]\n\\n"
+            "[bold white]Bem-vindo à InfraWatch![/bold white]\n"
             "[dim white]Insira suas credenciais para continuar.[/dim white] "
         ), 
         border_style=AZUL_CLARO,
@@ -137,24 +148,20 @@ console.print(
 
 time.sleep(1)
 ipt_usuario = Prompt.ask("[bold white]Usuário ou E-mail[/bold white]")
-ipt_senha = Prompt.ask("[bold white]Senha[/bold white]")
+ipt_senha = Prompt.ask("[bold white]Senha[/bold white]", password=True) # Para esconder a senha)
 
-accesso = False
 usuario_logado = ""
 
 # Validação do Usuário na Tabela 'usuario' e busca do nome da Empresa
-
 cursor.execute(
     """
     SELECT u.idUsuario, u.nome, u.email, u.senha, u.fkEmpresa, e.nome AS
     nomeEmpresa 
     FROM usuario u
     JOIN empresa e ON u.fkEmpresa = e.idEmpresa 
-    WHERE (u.email = %s OR u.nome = %s) AND u.senha = %s; """, 
-    (ipt_usuario, ipt_usuario, ipt_senha),
-
-
-    
+    WHERE (u.email = %s OR u.nome = %s) AND u.senha = %s;
+    """, 
+    (ipt_usuario, ipt_usuario, ipt_senha),  
 )
 
 usuario_logado = cursor.fetchone()
@@ -182,61 +189,28 @@ nome_usuario = usuario_logado["nome"]
 
 
 
+# ============================================================
+# 4. VALIDAÇÃO OU CADASTRO DO SERVIDOR
+# ============================================================
 
+cadastrar = True
 
+# Valida se o servidor existe
+for i in range(len(equipamentos)) :
+    if (equipamentos[i]['idMac'] == str(id_mac)) :
+        cadastrar = False
 
+        # Define o equipamento atual com as informações encontradas
+        equipamento_atual = {
+            "idEquipamento": equipamentos[i]['idEquipamento'],
+            "nome": equipamentos[i]['nome'],
+            "idMac": id_mac,
+            "fkEmpresa": equipamentos[i]['fkEmpresa']
+        }
 
-# Lista os equipamentos da empresa do usuario 
-
-cursor.execute( # busca os servidores da empresa do usuario; que não tem hostname cadastrado e as que tem o mesmo hostname do equipamento atual 
-    """
-    SELECT 
-        idEquipamento, 
-        nome, 
-        hostname, 
-        fkEmpresa 
-    FROM equipamento 
-    WHERE fkEmpresa = %s 
-      AND (hostname IS NULL OR hostname = '' OR hostname = %s); 
-    """,
-    (fk_empresa, hostname_atual),
-)
-equipamentos_disponiveis = cursor.fetchall()
-
-limpar_tela()
-mostrar_banner()
-
-console.print(
-    Panel(
-        f"[bold white]Olá, {nome_usuario}![/bold white]\n"
-        f"[dim white]Empresa:[/dim white] [bold {AZUL_CLARO}]{nome_empresa}[/bold {AZUL_CLARO}]\n"
-        f"[dim white]Hostname da máquina atual:[/dim white] [bold {AZUL_CLARO}]{hostname_atual}[/bold {AZUL_CLARO}]\n\n"
-        "[bold white]Abaixo estão os equipamentos disponíveis. Escolha uma opção:[/bold white]",
-        border_style=AZUL_CLARO,
-        style=f"on {AZUL_ESCURO}",
-    )
-)
-
-console.print("[bold yellow]0.[/bold yellow] Cadastrar um [bold green]NOVO servidor[/bold green]")
-
-for equip, eq in enumerate(equipamentos_disponiveis, start=1):
-    status_host = (
-        f"(Hostname: {eq['hostname']})"
-        if eq["hostname"]
-        else "[Novo - Sem Hostname registrado]" # exibe na tela os servidores sem ou com host igual ao da maquina 
-    )
-    console.print(f"[bold yellow]{equip}.[/bold yellow] {eq['nome']} {status_host}")
-
-opcao_equipamento = Prompt.ask(
-    "\n[bold white]Digite o número do servidor desejado ou 0 para cadastrar um novo[/bold white]",
-    default="0",
-)
-equipamento_atual = None
-
-
-# 4. VALIDAÇÃO OU CADASTRO DO SERVIDOR 
-
-if opcao_equipamento == "0":
+# Se não existe, cadastra
+if (cadastrar) :
+    
     # Cadastrar novo servidor
     console.print("\n[bold #38BDF8]--- Cadastro de Novo Servidor ---[/bold #38BDF8]")
     cursor.execute(
@@ -244,173 +218,108 @@ if opcao_equipamento == "0":
         (fk_empresa,),
     )
     qtd_equip = cursor.fetchone()["total"] + 1
-    nome_padrao = f"{nome_empresa}.server_id#{qtd_equip}"
-    nome_novo_servidor = Prompt.ask(
-        "[bold white]Nome para o novo servidor[/bold white]", default=nome_padrao
-    )
+    nome_novo_servidor = f"{nome_empresa}.server_id#{qtd_equip}"
     cursor.execute(
         """
-        INSERT INTO equipamento (nome, tipo, status, hostname, fkEmpresa)
+        INSERT INTO equipamento (nome, tipo, status, idMac, fkEmpresa)
         VALUES (%s, 'Servidor', 'Online', %s, %s);
         """,
-        (nome_novo_servidor, hostname_atual, fk_empresa),
+        (nome_novo_servidor, id_mac, fk_empresa),
     )
     bd.commit()
+    
+    # Define o equipamento atual com as informações cadastradas
     id_novo_eq = cursor.lastrowid
     equipamento_atual = {
         "idEquipamento": id_novo_eq,
         "nome": nome_novo_servidor,
-        "hostname": hostname_atual,
+        "idMac": id_mac,
         "fkEmpresa": fk_empresa,
     }
+
     console.print(
         f"[bold green]Novo servidor '{nome_novo_servidor}' cadastrado com sucesso! (ID: {id_novo_eq})[/bold green]\n"
     )
-else:
-    # Seleção de servidor existente da lista
-    try:
-        idx_selecionado = int(opcao_equipamento) - 1
-        eq_selecionado = equipamentos_disponiveis[idx_selecionado]
-    except (ValueError, IndexError):
-        console.print("[bold red]Opção de equipamento inválida! Encerrando o script.[/bold red]")
-        cursor.close()
-        bd.close()
-        sys.exit(1)
 
-    # Se o servidor selecionado não tinha hostname registrado, vincula o atual
-    if not eq_selecionado["hostname"]:
-        cursor.execute(
-            "UPDATE equipamento SET hostname = %s WHERE idEquipamento = %s;",
-            (hostname_atual, eq_selecionado["idEquipamento"]),
-        )
-        bd.commit()
-        eq_selecionado["hostname"] = hostname_atual
-        console.print(
-            f"[bold green]Hostname '{hostname_atual}' associado com sucesso ao servidor '{eq_selecionado['nome']}'![/bold green]\n"
-        )
-    equipamento_atual = eq_selecionado
+    # Cadastro dos componentes default (CPU, RAM, PROCESSOS)
+    sql = """
+        INSERT INTO parametro_alerta 
+        (nomeMetrica, limite_atencao, limite_critico, unidade, ativo, fkEquipamento, fkComponente) 
+        VALUES ('USE_CPU', 60.0, 90.0, '%%', 1, %s, 1)
+        """
+    cursor.execute(sql, (equipamento_atual["idEquipamento"], ))
     
-    # Se o servidor não tinha hostname gravado, vincula o hostname atual 
-    if not eq_selecionado["hostname"]: 
-        cursor.execute( 
-            "UPDATE equipamento SET hostname = %s WHERE idEquipamento = %s;", 
-            (hostname_atual, eq_selecionado["idEquipamento"]), 
-        ) 
-        bd.commit() 
-        eq_selecionado["hostname"] = hostname_atual 
-        console.print( 
-            f"[bold green]Hostname '{hostname_atual}' associado com sucesso ao servidor '{eq_selecionado['nome']}'![/bold green]\n" 
-        ) 
+    bd.commit() 
+    console.print(f"[bold green]Métrica USO_CPU salva com sucesso! [/bold green]\n") 
     
-    equipamento_atual = eq_selecionado 
+    
+    sql = """
+        INSERT INTO parametro_alerta 
+        (nomeMetrica, limite_atencao, limite_critico, unidade, ativo, fkEquipamento, fkComponente) 
+        VALUES ('USE_RAM', 60.0, 90.0, '%%', 1, %s, 2)
+        """
+    cursor.execute(sql, (equipamento_atual["idEquipamento"], )) 
+    bd.commit() 
+    console.print(f"[bold green]Métrica USO_RAM salva com sucesso! [/bold green]\n") 
+    
+    
+    sql = """
+        INSERT INTO parametro_alerta 
+        (nomeMetrica, limite_atencao, limite_critico, unidade, ativo, fkEquipamento, fkComponente) 
+        VALUES ('USE_DISCO', 60.0, 90.0, '%%', 1, %s, 6)
+        """
+    cursor.execute(sql, (equipamento_atual["idEquipamento"], ))
+    bd.commit() 
+    console.print(f"[bold green]Métrica PROCESSOS_ATIVOS salva com sucesso! [/bold green]\n") 
 
 
-# 5. SELEÇÃO E CONFIGURAÇÃO DE COMPONENTES E MÉTRICAS 
-componentes_selecionados_objs = [] 
 
-if opcao_equipamento == "0": 
+# ============================================================
+# 5. BUSCA MAPEAMENTO DE EQUIPAMENTO E COMPONENTES
+# ============================================================
+
+# É necessário fazer essa query aqui para que a tabela venha atualizada
+cursor.execute("SELECT DISTINCT fkComponente, fkEquipamento FROM parametro_alerta WHERE ativo = 1;")
+equip_comp = cursor.fetchall()
+
+
+# Busca os componentes cadastrados do equipamento atual
+cursor.execute( 
+    """ 
+    SELECT DISTINCT c.idComponente, c.nome, c.tipo 
+    FROM componente c 
+    JOIN parametro_alerta pa ON c.idComponente = pa.fkComponente 
+    WHERE pa.fkEquipamento = %s AND pa.ativo = 1; 
+    """, 
+    (equipamento_atual["idEquipamento"],), 
+)
+componentes_selecionados_objs = cursor.fetchall() 
+
+
+
+# Se não existir, exibe que não há nenhum componente ativo
+if not componentes_selecionados_objs: 
+    console.print("[bold yellow]Aviso: Nenhum componente ativo configurado no banco. Carregando lista geral...[/bold yellow]") 
     cursor.execute("SELECT idComponente, nome, tipo FROM componente;") 
-    componentes_catalogo = cursor.fetchall() 
-    
-    console.print( 
-        Panel( 
-            "[bold white]Configuração de Métricas para Novo Servidor[/bold white]\n" 
-            "[dim white]Escolha os componentes e defina os limites de alerta desejados.[/dim white]", 
-            border_style=AZUL_CLARO, 
-            style=f"on {AZUL_ESCURO}", 
-        ) 
-    ) 
-    
-    for comp in componentes_catalogo: 
-        if Confirm.ask( 
-            f"[bold white]Deseja monitorar [bold {AZUL_CLARO}]{comp['nome']}[/bold {AZUL_CLARO}] ({comp['tipo']})?[/bold white]", 
-            default=True, 
-        ): 
-            componentes_selecionados_objs.append(comp) 
-            tipo_upper = comp["tipo"].upper() 
-            
-           
-            if tipo_upper == "CPU": 
-                nome_metrica = "USO_CPU" 
-                sugestao_unidade = "%" 
-            elif tipo_upper == "RAM": 
-                nome_metrica = "USO_RAM" 
-                sugestao_unidade = "%" 
-            elif tipo_upper in ["DISCO", "ARMAZENAMENTO"]: 
-                nome_metrica = "USO_DISCO" 
-                sugestao_unidade = "%" 
-            elif tipo_upper == "REDE": 
-                nome_metrica = "USO_REDE" 
-                sugestao_unidade = "%" 
-            elif tipo_upper == "TEMPERATURA": 
-                nome_metrica = "TEMPERATURA_CPU" 
-                sugestao_unidade = "°C" 
-            elif tipo_upper == "PROCESSOS": 
-                nome_metrica = "PROCESSOS_ATIVOS" 
-                sugestao_unidade = "Dict" 
-            else: 
-                nome_metrica = f"USO_{tipo_upper}" # campo nome metrica no banco de dados 
-                sugestao_unidade = "%" 
-            
-            console.print(f"\n[bold #38BDF8]--- Configurando Alertas: {comp['nome']} ({nome_metrica}) ---[/bold #38BDF8]") 
-            
-            # cadastra apenas limites e unidade de medida 
-            lim_atencao = float(Prompt.ask("[bold white]Limite de Atenção[/bold white]", default="70.0")) 
-            lim_critico = float(Prompt.ask("[bold white]Limite Crítico[/bold white]", default="90.0")) 
-            unidade = Prompt.ask("[bold white]Unidade de medida (ex: %, GB, °C)[/bold white]", default=sugestao_unidade) 
-            
-            cursor.execute( 
-                """ 
-                INSERT INTO parametro_alerta (nomeMetrica, limite_atencao, limite_critico, unidade, ativo, fkEquipamento, fkComponente) 
-                VALUES (%s, %s, %s, %s, 1, %s, %s); 
-                """, 
-                ( 
-                    nome_metrica, 
-                    lim_atencao, 
-                    lim_critico, 
-                    unidade, 
-                    equipamento_atual["idEquipamento"], 
-                    comp["idComponente"], 
-                ), 
-            ) 
-            bd.commit() 
-            console.print(f"[bold green]Métrica '{nome_metrica}' salva com sucesso! [/bold green]\n") 
-else: 
-    # Servidor existente: busca os parâmetros já salvos no banco de dados 
-    cursor.execute( 
-        """ 
-        SELECT DISTINCT c.idComponente, c.nome, c.tipo 
-        FROM componente c 
-        JOIN parametro_alerta pa ON c.idComponente = pa.fkComponente 
-        WHERE pa.fkEquipamento = %s AND pa.ativo = 1; 
-        """, 
-        (equipamento_atual["idEquipamento"],), 
-    ) 
     componentes_selecionados_objs = cursor.fetchall() 
     
-    if not componentes_selecionados_objs: 
-        console.print("[bold yellow]Aviso: Nenhum componente ativo configurado no banco. Carregando lista geral...[/bold yellow]") 
-        cursor.execute("SELECT idComponente, nome, tipo FROM componente;") 
-        componentes_selecionados_objs = cursor.fetchall() 
-        
-    if not componentes_selecionados_objs: 
-        console.print("[bold yellow]Nenhum componente selecionado para monitorar. Encerrando.[/bold yellow]") 
-        cursor.close() 
-        bd.close() 
-        sys.exit(0) 
+if not componentes_selecionados_objs: 
+    console.print("[bold yellow]Nenhum componente selecionado para monitorar. Encerrando.[/bold yellow]") 
+    cursor.close() 
+    bd.close() 
+    sys.exit(0)
 
 cursor.close() 
 bd.close()
 
 
-# CONFIRMAÇÃO DE INÍCIO DA CAPTURA
-
 limpar_tela()
 mostrar_banner()
 
+
 console.print(                                                                                                                                                                                                                       
     Panel(
-        f"[bold white]Olá, {usuario_logado}![/bold white]\n\n"
+        f"[bold white]Olá, {usuario_logado['nome']}![/bold white]\n\n"
         "[dim white]As informações da sua máquina serão coletadas automaticamente.[/dim white]",
         title=f"[bold {AZUL_CLARO}]InfraWatch[/bold {AZUL_CLARO}]",
         border_style=AZUL_CLARO,
@@ -418,25 +327,29 @@ console.print(
     )
 )
 
+# Pergunta se o usuário deseja prosseguir
 console.print()
 continuar = Confirm.ask("[bold white]Deseja continuar?[/bold white]", default=True)
 
+# Se não, o script é fechado
 if not continuar:
     console.print(
         Panel("[bold white]Fechando script...[/bold white]", border_style=AZUL_CLARO, style=f"on {PRETO}")
     )
     os._exit(0)
 
+
 # ============================================================
-# IDENTIFICA COMPONENTES DO EQUIPAMENTO
+# 6. IDENTIFICA COMPONENTES DO EQUIPAMENTO ATUAL
 # ============================================================
 capturar_comp = []
 for ec in equip_comp:
     if ec['fkEquipamento'] == equipamento_atual['idEquipamento']:
         capturar_comp.append(ec['fkComponente'])
 
+
 # ============================================================
-# MONTAGEM DO CSV EM MEMÓRIA
+# 7. MONTAGEM DO CSV EM MEMÓRIA
 # ============================================================
 limpar_tela()
 mostrar_banner()
@@ -453,22 +366,26 @@ titulo_executados = "id;data_hora"
 
 for comp_id in capturar_comp:
     for c in componentes:
-        if comp_id == c['idComponente']:
-            titulo_executados += f";{c['nome']}"
+        if comp_id == 6:
+            continue
+        elif comp_id == c['idComponente']:
+            titulo_executados += f";{c['tipo']}"
 
-csv_buffer = io.StringIO()
-writer = csv.writer(csv_buffer, delimiter=';')
-writer.writerow(titulo_executados.split(';'))
+# EM MEMÓRIA
+# csv_buffer = io.StringIO()
+# writer = csv.writer(csv_buffer, delimiter=';')
+# writer.writerow(titulo_executados.split(';'))
+
+# GERAR ARQUIVO .CSV TESTE
+with open('./dados.csv', 'w', newline='', encoding="utf-8") as csvfile:
+    writer = csv.writer(csvfile, delimiter=';')
+    writer.writerow(titulo_executados.split(';'))
 
 
 # ============================================================
-# FUNÇÃO PARA CAPTURAR PROCESSOS E GERAR .CSV
+# 8. FUNÇÃO PARA CAPTURAR PROCESSOS E GERAR .CSV
 # ============================================================
 enviar_processos = False
-import os
-import csv
-import io
-import psutil
 
 def capturar_processos():
     infos_processos = []
@@ -482,7 +399,7 @@ def capturar_processos():
                 proc_tam_bytes = os.path.getsize(proc_path)
                 proc_tam_mb = round(proc_tam_bytes / (1024 * 1024), 2)
             
-            # MUDANÇA 1: Passar como lista [...] em vez de dicionário {...}
+
             infos_processos.append([
                 proc.info['pid'],
                 proc.info['name'],
@@ -492,19 +409,27 @@ def capturar_processos():
             ])
         except Exception:
             pass
-            
+
+    # EM MEMÓRIA
     csv_processos = io.StringIO()
     writer = csv.writer(csv_processos, delimiter=';')
-    writer.writerow(['PID', 'Processo', 'RAM', 'TAMANHO', 'CAMINHO'])
-    
-    # MUDANÇA 2: 'writer' com w minúsculo (estava Writer)
+    writer.writerow(['PID', 'PROCESSO', 'RAM', 'TAMANHO', 'CAMINHO'])
     writer.writerows(infos_processos)
+
+
+    # GERAR ARQUIVO .CSV TESTE  
+    with open('./dados_processos.csv', 'w', newline='', encoding="utf-8") as csvfile:
+        writer = csv.writer(csvfile, delimiter=';')
+        writer.writerow(['PID', 'PROCESSO', 'RAM', 'TAMANHO', 'CAMINHO'])
     
-    # MUDANÇA 3: Retornar a variável para ela existir fora da função
-    return csv_processos
+    with open('./dados_processos.csv', 'a', newline='', encoding="utf-8") as csvfile:
+        writer = csv.writer(csvfile, delimiter=';')
+        writer.writerows(infos_processos)
+    
+    return csvfile # Para testar troque por 'csvfile', fora de teste é 'csv_processos'
 
 # ============================================================
-# EXECUÇÃO DA CAPTURA (5 AMOSTRAS)
+# 7. EXECUÇÃO DA CAPTURA (5 AMOSTRAS)
 # ============================================================
 with Progress(
     TextColumn(f"[bold {AZUL_CLARO}]Capturando[/bold {AZUL_CLARO}]"),
@@ -517,71 +442,74 @@ with Progress(
     for i in range(5):
         valores_capturados = []
         for comp_id in capturar_comp:
-            for c in componentes:
-                if comp_id == c['idComponente']:
-                    tipo_comp = c['tipo'].upper()
-                    if tipo_comp == 'CPU':
-                        val = psutil.cpu_percent(interval=1)
-                        valores_capturados.append(str(val))
-                    elif tipo_comp == 'RAM':
-                        val = psutil.virtual_memory().percent
-                        valores_capturados.append(str(val))
-                    elif tipo_comp in ['ARMAZENAMENTO', 'DISCO']:
-                        val = psutil.disk_usage("/").percent
-                        valores_capturados.append(str(val))
-                    elif tipo_comp == 'PROCESSOS':
-                        csv_processos = capturar_processos()
-                        enviar_processos = True
-                    else:
-                        val = 0.0
-                        valores_capturados.append(str(val))
+            if comp_id == 6:
+                csv_processos = capturar_processos()
+                enviar_processos = True
+            else:
+                for c in componentes:
+                    if comp_id == c['idComponente']:
+                        val = eval(c['codigo'])
+                        valores_capturados.append(val)
         
         data_hora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        # Escreve a linha completa com ID, data_hora e todas as métricas capturadas
-        writer.writerow([equipamento_atual['idEquipamento'], data_hora] + valores_capturados)
+
+        # EM MEMÓRIA
+        # writer.writerow([equipamento_atual['idEquipamento'], data_hora] + valores_capturados)
+
+        # GERAR ARQUIVO .CSV TESTE
+        linha = [equipamento_atual['idEquipamento'], data_hora] + valores_capturados
+        with open('./dados.csv', 'a', newline='', encoding="utf-8") as csvfile:
+            writer = csv.writer(csvfile, delimiter=';')
+            writer.writerow(linha)
+
+        
         time.sleep(1)
         progress.advance(task)
 
+
 # ============================================================
-# ENVIO DO ARQUIVO CSV PARA O S3 (BRONZE)
+# 8. ENVIO DO ARQUIVO CSV PARA O S3 (BRONZE)
 # ============================================================
 timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-nome_arquivo = f"captura_{timestamp}.csv"
 
-# Exemplo de caminho: bronze/InfraWatch/1/captura_2026-10-01_19-45-00.csv
-arquivo_s3 = f"bronze/hardware/{nome_empresa}/{equipamento_atual['idEquipamento']}/{nome_arquivo}"
+# -- COMENTAR PARA TESTE
+# nome_arquivo = f"captura_{timestamp}.csv"
 
-with console.status(f"[bold {AZUL_CLARO}]Enviando captura CSV para a zona Bronze do S3...[/bold {AZUL_CLARO}]", spinner="dots"):
-    s3.put_object(
-        Bucket=BUCKET,
-        Key=arquivo_s3,
-        Body=csv_buffer.getvalue().encode("utf-8"),
-        ContentType="text/csv"
-    )
+# # Exemplo de caminho: bronze/InfraWatch/1/captura_2026-10-01_19-45-00.csv
+# arquivo_s3 = f"bronze/hardware/{nome_empresa}/{equipamento_atual['idEquipamento']}/{nome_arquivo}"
 
-nome_arquivo_processos = f"captura_processos_{timestamp}.csv"
-arquivo_processos_s3 = f"bronze/processo/{nome_empresa}/{equipamento_atual['idEquipamento']}/{nome_arquivo_processos}"
+# with console.status(f"[bold {AZUL_CLARO}]Enviando captura CSV para a zona Bronze do S3...[/bold {AZUL_CLARO}]", spinner="dots"):
+#     s3.put_object(
+#         Bucket=BUCKET,
+#         Key=arquivo_s3,
+#         Body=csv_buffer.getvalue().encode("utf-8"),
+#         ContentType="text/csv"
+#     )
 
-if (enviar_processos) :
-    with console.status(f"[bold {AZUL_CLARO}]Enviando processos CSV para a zona Bronze do S3...[/bold {AZUL_CLARO}]", spinner="dots"):
-        s3.put_object(
-            Bucket=BUCKET,
-            Key=arquivo_processos_s3,
-            Body=csv_processos.getvalue().encode("utf-8"),
-            ContentType="text/csv"
-        )
+# nome_arquivo_processos = f"captura_processos_{timestamp}.csv"
+# arquivo_processos_s3 = f"bronze/processo/{nome_empresa}/{equipamento_atual['idEquipamento']}/{nome_arquivo_processos}"
 
-console.print()
-console.print(
-    Panel(
-        f"[bold white]Captura enviada para o S3 com sucesso![/bold white]\n\n"
-        f"[dim white]Bucket:[/dim white] [bold {AZUL_CLARO}]{BUCKET}[/bold {AZUL_CLARO}]\n"
-        f"[dim white]Caminho Bronze:[/dim white] [bold {AZUL_CLARO}]{arquivo_s3}[/bold {AZUL_CLARO}]",
-        title=f"[bold {AZUL_CLARO}]UPLOAD CONCLUÍDO[/bold {AZUL_CLARO}]",
-        border_style=AZUL_CLARO,
-        style=f"on {PRETO}",
-        padding=(1, 2)
-    )
-)
+# if (enviar_processos) :
+#     with console.status(f"[bold {AZUL_CLARO}]Enviando processos CSV para a zona Bronze do S3...[/bold {AZUL_CLARO}]", spinner="dots"):
+#         s3.put_object(
+#             Bucket=BUCKET,
+#             Key=arquivo_processos_s3,
+#             Body=csv_processos.getvalue().encode("utf-8"),
+#             ContentType="text/csv"
+#         )
+
+# console.print()
+# console.print(
+#     Panel(
+#         f"[bold white]Captura enviada para o S3 com sucesso![/bold white]\n\n"
+#         f"[dim white]Bucket:[/dim white] [bold {AZUL_CLARO}]{BUCKET}[/bold {AZUL_CLARO}]\n"
+#         f"[dim white]Caminho Bronze:[/dim white] [bold {AZUL_CLARO}]{arquivo_s3}[/bold {AZUL_CLARO}]",
+#         title=f"[bold {AZUL_CLARO}]UPLOAD CONCLUÍDO[/bold {AZUL_CLARO}]",
+#         border_style=AZUL_CLARO,
+#         style=f"on {PRETO}",
+#         padding=(1, 2)
+#     )
+# )
+# -- FIM COMENTAR PARA TESTE
 
 console.print(Align.center("[dim white]Obrigada por escolher a InfraWatch![/dim white]"))
