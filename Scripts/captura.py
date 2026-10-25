@@ -372,14 +372,14 @@ for comp_id in capturar_comp:
             titulo_executados += f";{c['tipo']}"
 
 # EM MEMÓRIA
-# csv_buffer = io.StringIO()
-# writer = csv.writer(csv_buffer, delimiter=';')
-# writer.writerow(titulo_executados.split(';'))
+csv_buffer = io.StringIO()
+writer = csv.writer(csv_buffer, delimiter=';')
+writer.writerow(titulo_executados.split(';'))
 
 # GERAR ARQUIVO .CSV TESTE
-with open('./dados.csv', 'w', newline='', encoding="utf-8") as csvfile:
-    writer = csv.writer(csvfile, delimiter=';')
-    writer.writerow(titulo_executados.split(';'))
+# with open('./dados.csv', 'w', newline='', encoding="utf-8") as csvfile:
+#     writer = csv.writer(csvfile, delimiter=';')
+#     writer.writerow(titulo_executados.split(';'))
 
 
 # ============================================================
@@ -418,15 +418,15 @@ def capturar_processos():
 
 
     # GERAR ARQUIVO .CSV TESTE  
-    with open('./dados_processos.csv', 'w', newline='', encoding="utf-8") as csvfile:
-        writer = csv.writer(csvfile, delimiter=';')
-        writer.writerow(['PID', 'PROCESSO', 'RAM', 'TAMANHO', 'CAMINHO'])
+    # with open('./dados_processos.csv', 'w', newline='', encoding="utf-8") as csvfile:
+    #     writer = csv.writer(csvfile, delimiter=';')
+    #     writer.writerow(['PID', 'PROCESSO', 'RAM', 'TAMANHO', 'CAMINHO'])
     
-    with open('./dados_processos.csv', 'a', newline='', encoding="utf-8") as csvfile:
-        writer = csv.writer(csvfile, delimiter=';')
-        writer.writerows(infos_processos)
+    # with open('./dados_processos.csv', 'a', newline='', encoding="utf-8") as csvfile:
+    #     writer = csv.writer(csvfile, delimiter=';')
+    #     writer.writerows(infos_processos)
     
-    return csvfile # Para testar troque por 'csvfile', fora de teste é 'csv_processos'
+    return csv_processos # Para testar troque por 'csvfile', fora de teste é 'csv_processos'
 
 # ============================================================
 # 7. EXECUÇÃO DA CAPTURA (5 AMOSTRAS)
@@ -454,13 +454,13 @@ with Progress(
         data_hora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         # EM MEMÓRIA
-        # writer.writerow([equipamento_atual['idEquipamento'], data_hora] + valores_capturados)
+        writer.writerow([equipamento_atual['idEquipamento'], data_hora] + valores_capturados)
 
         # GERAR ARQUIVO .CSV TESTE
-        linha = [equipamento_atual['idEquipamento'], data_hora] + valores_capturados
-        with open('./dados.csv', 'a', newline='', encoding="utf-8") as csvfile:
-            writer = csv.writer(csvfile, delimiter=';')
-            writer.writerow(linha)
+        # linha = [equipamento_atual['idEquipamento'], data_hora] + valores_capturados
+        # with open('./dados.csv', 'a', newline='', encoding="utf-8") as csvfile:
+        #     writer = csv.writer(csvfile, delimiter=';')
+        #     writer.writerow(linha)
 
         
         time.sleep(1)
@@ -473,43 +473,43 @@ with Progress(
 timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
 # -- COMENTAR PARA TESTE
-# nome_arquivo = f"captura_{timestamp}.csv"
+nome_arquivo = f"captura_{timestamp}.csv"
 
-# # Exemplo de caminho: bronze/InfraWatch/1/captura_2026-10-01_19-45-00.csv
-# arquivo_s3 = f"bronze/hardware/{nome_empresa}/{equipamento_atual['idEquipamento']}/{nome_arquivo}"
+# Exemplo de caminho: bronze/InfraWatch/1/captura_2026-10-01_19-45-00.csv
+arquivo_s3 = f"bronze/hardware/{nome_empresa}/{equipamento_atual['idEquipamento']}/{nome_arquivo}"
 
-# with console.status(f"[bold {AZUL_CLARO}]Enviando captura CSV para a zona Bronze do S3...[/bold {AZUL_CLARO}]", spinner="dots"):
-#     s3.put_object(
-#         Bucket=BUCKET,
-#         Key=arquivo_s3,
-#         Body=csv_buffer.getvalue().encode("utf-8"),
-#         ContentType="text/csv"
-#     )
+with console.status(f"[bold {AZUL_CLARO}]Enviando captura CSV para a zona Bronze do S3...[/bold {AZUL_CLARO}]", spinner="dots"):
+    s3.put_object(
+        Bucket=BUCKET,
+        Key=arquivo_s3,
+        Body=csv_buffer.getvalue().encode("utf-8"),
+        ContentType="text/csv"
+    )
 
-# nome_arquivo_processos = f"captura_processos_{timestamp}.csv"
-# arquivo_processos_s3 = f"bronze/processo/{nome_empresa}/{equipamento_atual['idEquipamento']}/{nome_arquivo_processos}"
+nome_arquivo_processos = f"captura_processos_{timestamp}.csv"
+arquivo_processos_s3 = f"bronze/processo/{nome_empresa}/{equipamento_atual['idEquipamento']}/{nome_arquivo_processos}"
 
-# if (enviar_processos) :
-#     with console.status(f"[bold {AZUL_CLARO}]Enviando processos CSV para a zona Bronze do S3...[/bold {AZUL_CLARO}]", spinner="dots"):
-#         s3.put_object(
-#             Bucket=BUCKET,
-#             Key=arquivo_processos_s3,
-#             Body=csv_processos.getvalue().encode("utf-8"),
-#             ContentType="text/csv"
-#         )
+if (enviar_processos) :
+    with console.status(f"[bold {AZUL_CLARO}]Enviando processos CSV para a zona Bronze do S3...[/bold {AZUL_CLARO}]", spinner="dots"):
+        s3.put_object(
+            Bucket=BUCKET,
+            Key=arquivo_processos_s3,
+            Body=csv_processos.getvalue().encode("utf-8"),
+            ContentType="text/csv"
+        )
 
-# console.print()
-# console.print(
-#     Panel(
-#         f"[bold white]Captura enviada para o S3 com sucesso![/bold white]\n\n"
-#         f"[dim white]Bucket:[/dim white] [bold {AZUL_CLARO}]{BUCKET}[/bold {AZUL_CLARO}]\n"
-#         f"[dim white]Caminho Bronze:[/dim white] [bold {AZUL_CLARO}]{arquivo_s3}[/bold {AZUL_CLARO}]",
-#         title=f"[bold {AZUL_CLARO}]UPLOAD CONCLUÍDO[/bold {AZUL_CLARO}]",
-#         border_style=AZUL_CLARO,
-#         style=f"on {PRETO}",
-#         padding=(1, 2)
-#     )
-# )
+console.print()
+console.print(
+    Panel(
+        f"[bold white]Captura enviada para o S3 com sucesso![/bold white]\n\n"
+        f"[dim white]Bucket:[/dim white] [bold {AZUL_CLARO}]{BUCKET}[/bold {AZUL_CLARO}]\n"
+        f"[dim white]Caminho Bronze:[/dim white] [bold {AZUL_CLARO}]{arquivo_s3}[/bold {AZUL_CLARO}]",
+        title=f"[bold {AZUL_CLARO}]UPLOAD CONCLUÍDO[/bold {AZUL_CLARO}]",
+        border_style=AZUL_CLARO,
+        style=f"on {PRETO}",
+        padding=(1, 2)
+    )
+)
 # -- FIM COMENTAR PARA TESTE
 
 console.print(Align.center("[dim white]Obrigada por escolher a InfraWatch![/dim white]"))
