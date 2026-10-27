@@ -67,6 +67,7 @@ DB_HOST = os.getenv("BD_HOST")
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_NAME = os.getenv("DB_NAME")
+PORT = int(os.getenv("PORT"))
 
 
 
@@ -100,6 +101,7 @@ bd = mysql.connect(
     user=DB_USER,
     password=DB_PASSWORD,
     database=DB_NAME,
+    port=PORT,
     cursorclass=mysql.cursors.DictCursor
 )
 
