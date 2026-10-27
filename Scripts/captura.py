@@ -7,7 +7,7 @@ import os
 import uuid
 import boto3
 import io
-import pymysql as mysql
+import pymysql as mysql 
 import sys
 from dotenv import load_dotenv
 
@@ -63,7 +63,7 @@ AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY") or None
 AWS_SESSION_TOKEN = os.getenv("AWS_SESSION_TOKEN") or None
 
 # Variáveis BD
-DB_HOST = os.getenv("BD_HOST")
+DB_HOST = os.getenv("DB_HOST")
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_NAME = os.getenv("DB_NAME")
