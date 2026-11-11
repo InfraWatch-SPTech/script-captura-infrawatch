@@ -1,4 +1,3 @@
-
 import psutil
 import csv
 from datetime import datetime
@@ -9,6 +8,10 @@ import boto3
 import io
 import pymysql as mysql 
 import sys
+import json
+import urllib.request
+import urllib.error
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
 
 # Rich para interface no terminal
@@ -68,6 +71,24 @@ DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_NAME = os.getenv("DB_NAME")
 PORT = int(os.getenv("PORT"))
+
+# Sonda HTTP habilitada por padrão. httpbin.org/post simula temporariamente o
+# endpoint do cliente; 
+REQUEST_PROBE_URL = os.getenv(
+    "INFRAWATCH_REQUEST_PROBE_URL", "https://httpbin.org/post"
+).strip()
+REQUEST_PROBE_METHOD = os.getenv("INFRAWATCH_REQUEST_PROBE_METHOD", "POST").upper()
+REQUEST_PROBE_TIMEOUT = float(os.getenv("INFRAWATCH_REQUEST_PROBE_TIMEOUT", "3"))
+REQUEST_PROBE_ENABLED = os.getenv("INFRAWATCH_REQUEST_PROBE_ENABLED", "true").lower() not in ("0", "false", "nao", "não", "off")
+REQUESTS_POR_NIVEL = 20
+NIVEIS_CONCORRENCIA = [1, 2, 4, 8, 16] * 3
+
+if REQUEST_PROBE_ENABLED and not REQUEST_PROBE_URL:
+    raise ValueError("A sonda HTTP está habilitada. Informe INFRAWATCH_REQUEST_PROBE_URL.")
+if REQUEST_PROBE_URL and not REQUEST_PROBE_URL.lower().startswith(("http://", "https://")):
+    raise ValueError("INFRAWATCH_REQUEST_PROBE_URL precisa começar com http:// ou https://.")
+if REQUEST_PROBE_METHOD not in ("GET", "POST"):
+    raise ValueError("INFRAWATCH_REQUEST_PROBE_METHOD aceita somente GET ou POST.")
 
 
 
@@ -376,7 +397,13 @@ for comp_id in capturar_comp:
 # EM MEMÓRIA
 csv_buffer = io.StringIO()
 writer = csv.writer(csv_buffer, delimiter=';')
-writer.writerow(titulo_executados.split(';'))
+colunas_captura = titulo_executados.split(';') + [
+    'CONCORRENCIA_TESTE', 'REQUISICOES', 'REQUISICOES_SUCESSO',
+    'REQUISICOES_ERRO', 'REQUISICOES_POR_SEGUNDO',
+    'LATENCIA_MEDIA_MS', 'LATENCIA_P95_MS', 'LATENCIA_P99_MS',
+    'LATENCIA_MAX_MS'
+]
+writer.writerow(colunas_captura)
 
 # GERAR ARQUIVO .CSV TESTE
 # with open('./dados.csv', 'w', newline='', encoding="utf-8") as csvfile:
@@ -430,6 +457,68 @@ def capturar_processos():
     
     return csv_processos # Para testar troque por 'csvfile', fora de teste é 'csv_processos'
 
+
+def capturar_requisicoes_http(nivel_concorrencia):
+    """Executa um lote HTTP controlado contra o endpoint configurado."""
+    colunas = [
+        nivel_concorrencia if REQUEST_PROBE_ENABLED else '', '', '', '', '', '', '', '', ''
+    ]
+    if not REQUEST_PROBE_ENABLED:
+        return colunas
+
+    def requisitar():
+        inicio = time.perf_counter()
+        status = 0
+        try:
+            requisicao = urllib.request.Request(
+                REQUEST_PROBE_URL,
+                data=(json.dumps({
+                    "origem": "InfraWatch",
+                    "tipo": "teste_capacidade",
+                    "concorrencia": nivel_concorrencia,
+                }).encode("utf-8") if REQUEST_PROBE_METHOD == "POST" else None),
+                headers={
+                    'User-Agent': 'InfraWatch-Capacity-Probe/1.0',
+                    'Content-Type': 'application/json',
+                },
+                method=REQUEST_PROBE_METHOD
+            )
+            with urllib.request.urlopen(requisicao, timeout=REQUEST_PROBE_TIMEOUT) as resposta:
+                status = resposta.getcode()
+                resposta.read(1024)
+        except urllib.error.HTTPError as erro:
+            status = erro.code
+        except Exception:
+            status = 0
+        duracao_ms = (time.perf_counter() - inicio) * 1000
+        return status, duracao_ms
+
+    total = max(REQUESTS_POR_NIVEL, 1)
+    inicio_lote = time.perf_counter()
+    latencias = []
+    sucessos = 0
+    with ThreadPoolExecutor(max_workers=nivel_concorrencia) as executor:
+        tarefas = [executor.submit(requisitar) for _ in range(total)]
+        for tarefa in as_completed(tarefas):
+            status, latencia = tarefa.result()
+            latencias.append(latencia)
+            if 200 <= status < 400:
+                sucessos += 1
+    duracao_lote = max(time.perf_counter() - inicio_lote, 0.001)
+    latencias.sort()
+
+    def percentil(p):
+        indice = min(int((len(latencias) - 1) * p), len(latencias) - 1)
+        return round(latencias[indice], 2) if latencias else 0
+
+    erros = total - sucessos
+    media = round(sum(latencias) / len(latencias), 2) if latencias else 0
+    return [
+        nivel_concorrencia, total, sucessos, erros,
+        round(total / duracao_lote, 2), media, percentil(.95),
+        percentil(.99), round(max(latencias), 2) if latencias else 0
+    ]
+
 # ============================================================
 # 7. EXECUÇÃO DA CAPTURA (5 AMOSTRAS)
 # ============================================================
@@ -440,8 +529,11 @@ with Progress(
     TimeElapsedColumn(),
     console=console
 ) as progress:
-    task = progress.add_task("captura", total=5)
-    for i in range(5):
+    task = progress.add_task("captura", total=15)
+    for i in range(15):
+        nivel_concorrencia = NIVEIS_CONCORRENCIA[i]
+        metricas_requisicoes = capturar_requisicoes_http(nivel_concorrencia)
+
         valores_capturados = []
         for comp_id in capturar_comp:
             if comp_id == 6:
@@ -456,7 +548,10 @@ with Progress(
         data_hora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         # EM MEMÓRIA
-        writer.writerow([equipamento_atual['idEquipamento'], data_hora] + valores_capturados)
+        writer.writerow(
+            [equipamento_atual['idEquipamento'], data_hora] +
+            valores_capturados + metricas_requisicoes
+        )
 
         # GERAR ARQUIVO .CSV TESTE
         # linha = [equipamento_atual['idEquipamento'], data_hora] + valores_capturados

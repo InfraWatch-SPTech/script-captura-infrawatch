@@ -1,4 +1,3 @@
-
 import psutil
 import csv
 from datetime import datetime
@@ -74,7 +73,7 @@ DB_NAME = os.getenv("DB_NAME")
 PORT = int(os.getenv("PORT"))
 
 # Sonda HTTP habilitada por padrão. httpbin.org/post simula temporariamente o
-# endpoint do cliente; substitua pela URL real do cliente quando estiver pronta.
+# endpoint do cliente; 
 REQUEST_PROBE_URL = os.getenv(
     "INFRAWATCH_REQUEST_PROBE_URL", "https://httpbin.org/post"
 ).strip()
@@ -532,6 +531,9 @@ with Progress(
 ) as progress:
     task = progress.add_task("captura", total=15)
     for i in range(15):
+        nivel_concorrencia = NIVEIS_CONCORRENCIA[i]
+        metricas_requisicoes = capturar_requisicoes_http(nivel_concorrencia)
+
         valores_capturados = []
         for comp_id in capturar_comp:
             if comp_id == 6:
@@ -544,9 +546,6 @@ with Progress(
                         valores_capturados.append(val)
         
         data_hora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        nivel_concorrencia = NIVEIS_CONCORRENCIA[i]
-        metricas_requisicoes = capturar_requisicoes_http(nivel_concorrencia)
 
         # EM MEMÓRIA
         writer.writerow(
