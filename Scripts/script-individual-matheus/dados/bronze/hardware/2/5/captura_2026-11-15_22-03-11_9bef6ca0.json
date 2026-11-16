@@ -1,0 +1,1477 @@
+[
+  {
+    "versao": 2,
+    "empresa_id": "2",
+    "servidor_id": "5",
+    "id_mac": "250825370816912",
+    "inicio": "2026-11-16T01:03:11.357052+00:00",
+    "fim": "2026-11-16T01:03:16.357293+00:00",
+    "cpu": 5.6,
+    "ram": 63.9,
+    "disco": 14.2,
+    "rede": null,
+    "processos": [
+      {
+        "nome": "(sd-pam)",
+        "cpu": 0.0,
+        "ram": 0.0378
+      },
+      {
+        "nome": "ModemManager",
+        "cpu": 0.0,
+        "ram": 0.1212
+      },
+      {
+        "nome": "NetworkManager",
+        "cpu": 0.0167,
+        "ram": 0.1721
+      },
+      {
+        "nome": "Xorg",
+        "cpu": 0.1667,
+        "ram": 1.2447
+      },
+      {
+        "nome": "accounts-daemon",
+        "cpu": 0.0,
+        "ram": 0.0865
+      },
+      {
+        "nome": "acpid",
+        "cpu": 0.0,
+        "ram": 0.012
+      },
+      {
+        "nome": "addsound",
+        "cpu": 0.05,
+        "ram": 0.0291
+      },
+      {
+        "nome": "agent",
+        "cpu": 0.0,
+        "ram": 0.0745
+      },
+      {
+        "nome": "agetty",
+        "cpu": 0.0,
+        "ram": 0.012
+      },
+      {
+        "nome": "applet.py",
+        "cpu": 0.0,
+        "ram": 0.2311
+      },
+      {
+        "nome": "at-spi-bus-launcher",
+        "cpu": 0.0,
+        "ram": 0.0989
+      },
+      {
+        "nome": "at-spi2-registryd",
+        "cpu": 0.0,
+        "ram": 0.076
+      },
+      {
+        "nome": "avahi-daemon",
+        "cpu": 0.0,
+        "ram": 0.0274
+      },
+      {
+        "nome": "bash",
+        "cpu": 0.0,
+        "ram": 0.3138
+      },
+      {
+        "nome": "blueman-applet",
+        "cpu": 0.0,
+        "ram": 0.4132
+      },
+      {
+        "nome": "blueman-tray",
+        "cpu": 0.0167,
+        "ram": 0.2989
+      },
+      {
+        "nome": "bluetoothd",
+        "cpu": 0.0,
+        "ram": 0.036
+      },
+      {
+        "nome": "card0-crtc0",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "card0-crtc1",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "card0-crtc2",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "card0-crtc3",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "cat",
+        "cpu": 0.0,
+        "ram": 0.0192
+      },
+      {
+        "nome": "chrome",
+        "cpu": 0.7666,
+        "ram": 29.0075
+      },
+      {
+        "nome": "chrome_crashpad_handler",
+        "cpu": 0.0,
+        "ram": 0.1319
+      },
+      {
+        "nome": "cinnamon",
+        "cpu": 0.3333,
+        "ram": 2.1827
+      },
+      {
+        "nome": "cinnamon-killer-daemon",
+        "cpu": 0.0,
+        "ram": 0.2722
+      },
+      {
+        "nome": "cinnamon-launcher",
+        "cpu": 0.0,
+        "ram": 0.3186
+      },
+      {
+        "nome": "code",
+        "cpu": 1.6499,
+        "ram": 36.4791
+      },
+      {
+        "nome": "codex",
+        "cpu": 0.0333,
+        "ram": 1.7054
+      },
+      {
+        "nome": "colord",
+        "cpu": 0.0,
+        "ram": 0.1189
+      },
+      {
+        "nome": "console_checker",
+        "cpu": 0.0,
+        "ram": 0.0192
+      },
+      {
+        "nome": "copilot-runtime",
+        "cpu": 0.0,
+        "ram": 1.203
+      },
+      {
+        "nome": "cpuhp/0",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "cpuhp/1",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "cpuhp/10",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "cpuhp/11",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "cpuhp/2",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "cpuhp/3",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "cpuhp/4",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "cpuhp/5",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "cpuhp/6",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "cpuhp/7",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "cpuhp/8",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "cpuhp/9",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "cron",
+        "cpu": 0.0,
+        "ram": 0.0152
+      },
+      {
+        "nome": "csd-a11y-settings",
+        "cpu": 0.0,
+        "ram": 0.1906
+      },
+      {
+        "nome": "csd-automount",
+        "cpu": 0.0,
+        "ram": 0.2078
+      },
+      {
+        "nome": "csd-background",
+        "cpu": 0.0,
+        "ram": 0.251
+      },
+      {
+        "nome": "csd-clipboard",
+        "cpu": 0.0,
+        "ram": 0.1759
+      },
+      {
+        "nome": "csd-color",
+        "cpu": 0.0,
+        "ram": 0.2292
+      },
+      {
+        "nome": "csd-housekeeping",
+        "cpu": 0.0,
+        "ram": 0.192
+      },
+      {
+        "nome": "csd-keyboard",
+        "cpu": 0.0,
+        "ram": 0.191
+      },
+      {
+        "nome": "csd-media-keys",
+        "cpu": 0.0333,
+        "ram": 0.2303
+      },
+      {
+        "nome": "csd-power",
+        "cpu": 0.0,
+        "ram": 0.2807
+      },
+      {
+        "nome": "csd-print-notifications",
+        "cpu": 0.0,
+        "ram": 0.2114
+      },
+      {
+        "nome": "csd-printer",
+        "cpu": 0.0,
+        "ram": 0.1225
+      },
+      {
+        "nome": "csd-screensaver-proxy",
+        "cpu": 0.0,
+        "ram": 0.1896
+      },
+      {
+        "nome": "csd-wacom",
+        "cpu": 0.0,
+        "ram": 0.1933
+      },
+      {
+        "nome": "csd-xsettings",
+        "cpu": 0.0167,
+        "ram": 0.2322
+      },
+      {
+        "nome": "cups-browsed",
+        "cpu": 0.0,
+        "ram": 0.1074
+      },
+      {
+        "nome": "cupsd",
+        "cpu": 0.0,
+        "ram": 0.0633
+      },
+      {
+        "nome": "dbus-daemon",
+        "cpu": 0.0,
+        "ram": 0.0895
+      },
+      {
+        "nome": "dconf",
+        "cpu": 0.0,
+        "ram": 0.0744
+      },
+      {
+        "nome": "dconf-service",
+        "cpu": 0.0,
+        "ram": 0.0608
+      },
+      {
+        "nome": "exim4",
+        "cpu": 0.0,
+        "ram": 0.1127
+      },
+      {
+        "nome": "fusermount3",
+        "cpu": 0.0,
+        "ram": 0.0096
+      },
+      {
+        "nome": "fwupd",
+        "cpu": 0.0,
+        "ram": 0.3425
+      },
+      {
+        "nome": "gnome-keyring-daemon",
+        "cpu": 0.0,
+        "ram": 0.0983
+      },
+      {
+        "nome": "gnome-screenshot",
+        "cpu": 0.0,
+        "ram": 0.3554
+      },
+      {
+        "nome": "gnome-software",
+        "cpu": 0.0,
+        "ram": 1.4415
+      },
+      {
+        "nome": "gnote",
+        "cpu": 0.0,
+        "ram": 0.7334
+      },
+      {
+        "nome": "goa-daemon",
+        "cpu": 0.0,
+        "ram": 0.4062
+      },
+      {
+        "nome": "goa-identity-service",
+        "cpu": 0.0,
+        "ram": 0.1097
+      },
+      {
+        "nome": "gvfs-afc-volume-monitor",
+        "cpu": 0.0,
+        "ram": 0.1002
+      },
+      {
+        "nome": "gvfs-goa-volume-monitor",
+        "cpu": 0.0,
+        "ram": 0.0793
+      },
+      {
+        "nome": "gvfs-gphoto2-volume-monitor",
+        "cpu": 0.0,
+        "ram": 0.0798
+      },
+      {
+        "nome": "gvfs-mtp-volume-monitor",
+        "cpu": 0.0,
+        "ram": 0.0777
+      },
+      {
+        "nome": "gvfs-udisks2-volume-monitor",
+        "cpu": 0.0,
+        "ram": 0.1319
+      },
+      {
+        "nome": "gvfsd",
+        "cpu": 0.0,
+        "ram": 0.0701
+      },
+      {
+        "nome": "gvfsd-dnssd",
+        "cpu": 0.0,
+        "ram": 0.1042
+      },
+      {
+        "nome": "gvfsd-fuse",
+        "cpu": 0.0,
+        "ram": 0.101
+      },
+      {
+        "nome": "gvfsd-metadata",
+        "cpu": 0.0,
+        "ram": 0.0648
+      },
+      {
+        "nome": "gvfsd-network",
+        "cpu": 0.0,
+        "ram": 0.1035
+      },
+      {
+        "nome": "gvfsd-recent",
+        "cpu": 0.0,
+        "ram": 0.1144
+      },
+      {
+        "nome": "gvfsd-trash",
+        "cpu": 0.0,
+        "ram": 0.105
+      },
+      {
+        "nome": "ibus-daemon",
+        "cpu": 0.0,
+        "ram": 0.1103
+      },
+      {
+        "nome": "ibus-dconf",
+        "cpu": 0.0,
+        "ram": 0.084
+      },
+      {
+        "nome": "ibus-engine-simple",
+        "cpu": 0.0,
+        "ram": 0.0728
+      },
+      {
+        "nome": "ibus-extension-gtk3",
+        "cpu": 0.0,
+        "ram": 0.2245
+      },
+      {
+        "nome": "ibus-portal",
+        "cpu": 0.0,
+        "ram": 0.0858
+      },
+      {
+        "nome": "ibus-ui-gtk3",
+        "cpu": 0.0,
+        "ram": 0.3466
+      },
+      {
+        "nome": "ibus-x11",
+        "cpu": 0.0,
+        "ram": 0.1794
+      },
+      {
+        "nome": "idle_inject/0",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "idle_inject/1",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "idle_inject/10",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "idle_inject/11",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "idle_inject/2",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "idle_inject/3",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "idle_inject/4",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "idle_inject/5",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "idle_inject/6",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "idle_inject/7",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "idle_inject/8",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "idle_inject/9",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "iprt-VBoxTscThread",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "irq/142-aerdrv",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "irq/157-mei_me",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "irq/158-iwlwifi:default_queue",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "irq/159-iwlwifi:queue_1",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "irq/16-processor_thermal_device_pci",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "irq/160-iwlwifi:queue_2",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "irq/161-iwlwifi:queue_3",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "irq/162-iwlwifi:queue_4",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "irq/163-iwlwifi:queue_5",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "irq/164-iwlwifi:queue_6",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "irq/165-iwlwifi:queue_7",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "irq/166-iwlwifi:queue_8",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "irq/167-iwlwifi:queue_9",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "irq/168-iwlwifi:queue_10",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "irq/169-iwlwifi:queue_11",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "irq/170-iwlwifi:queue_12",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "irq/171-iwlwifi:exception",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "irq/40-ASUE1200:00",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "jbd2/nvme0n1p3-8",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "jetbrains-toolbox",
+        "cpu": 0.05,
+        "ram": 2.4425
+      },
+      {
+        "nome": "jetbrainsd",
+        "cpu": 0.0167,
+        "ram": 1.2382
+      },
+      {
+        "nome": "kauditd",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kcompactd0",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kdevtmpfs",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "khugepaged",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "khungtaskd",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "krfcommd",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "ksmd",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "ksoftirqd/0",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "ksoftirqd/1",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "ksoftirqd/10",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "ksoftirqd/11",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "ksoftirqd/2",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "ksoftirqd/3",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "ksoftirqd/4",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "ksoftirqd/5",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "ksoftirqd/6",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "ksoftirqd/7",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "ksoftirqd/8",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "ksoftirqd/9",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kswapd0",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kthreadd",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/0:0-events",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/0:0H-events_highpri",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/0:1-events",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/0:1H-kblockd",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/10:0-events",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/10:0H-events_highpri",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/10:1",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/10:1H-kblockd",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/10:2-events",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/11:0-events",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/11:0H-events_highpri",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/11:1H-events_highpri",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/11:2-events",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/1:0",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/1:0H-events_highpri",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/1:1-mm_percpu_wq",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/1:1H-events_highpri",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/2:0-events",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/2:0H-events_highpri",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/2:1",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/2:1H-events_highpri",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/2:2-cgroup_destroy",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/3:0",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/3:0H-events_highpri",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/3:1-mm_percpu_wq",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/3:1H-kblockd",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/4:0-events",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/4:0H-events_highpri",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/4:1H-kblockd",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/4:2-events",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/5:0-events",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/5:0H-events_highpri",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/5:1-events",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/5:1H-kblockd",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/5:2-mm_percpu_wq",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/6:0-events",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/6:0H-events_highpri",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/6:1-events",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/6:1H-kblockd",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/7:0-events",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/7:0H-events_highpri",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/7:1-events",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/7:1H-events_highpri",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/7:2-mm_percpu_wq",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/8:0-events",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/8:0H-events_highpri",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/8:1-events_power_efficient",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/8:1H-kblockd",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/8:2",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/9:0H-events_highpri",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/9:1-events",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/9:1H-kblockd",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/9:2-events",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/R-acpi_",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/R-blkcg",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/R-cfg80",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/R-crypt",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/R-devfr",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/R-edac-",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/R-ext4-",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/R-hfi-u",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/R-inet_",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/R-iprt-",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/R-ipv6_",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/R-kbloc",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/R-kinte",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/R-kstrp",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/R-kthro",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/R-led_w",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/R-md",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/R-md_bi",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/R-mld",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/R-mm_pe",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/R-netns",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/R-nvme-",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/R-raid5",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/R-rcu_g",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/R-rcu_p",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/R-slub_",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/R-tpm_d",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/R-ttm",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/R-write",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/u24:0-ext4-rsv-conversion",
+        "cpu": 0.0167,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/u24:1-events_unbound",
+        "cpu": 0.0167,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/u24:2-events_unbound",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/u24:3",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/u25:0-rb_allocator",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/u25:2-i915_flip",
+        "cpu": 0.0167,
+        "ram": 0.0
+      },
+      {
+        "nome": "kworker/u25:3-rb_allocator",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "lightdm",
+        "cpu": 0.0,
+        "ram": 0.1597
+      },
+      {
+        "nome": "migration/0",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "migration/1",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "migration/10",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "migration/11",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "migration/2",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "migration/3",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "migration/4",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "migration/5",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "migration/6",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "migration/7",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "migration/8",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "migration/9",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "mysqld",
+        "cpu": 0.0833,
+        "ram": 3.1011
+      },
+      {
+        "nome": "nemo",
+        "cpu": 0.0333,
+        "ram": 0.5666
+      },
+      {
+        "nome": "nemo-desktop",
+        "cpu": 0.0,
+        "ram": 0.4345
+      },
+      {
+        "nome": "nm-applet",
+        "cpu": 0.0,
+        "ram": 0.4219
+      },
+      {
+        "nome": "obexd",
+        "cpu": 0.0,
+        "ram": 0.0472
+      },
+      {
+        "nome": "oom_reaper",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "pet",
+        "cpu": 0.0,
+        "ram": 0.0688
+      },
+      {
+        "nome": "pipewire",
+        "cpu": 0.1,
+        "ram": 0.1462
+      },
+      {
+        "nome": "pipewire-pulse",
+        "cpu": 0.05,
+        "ram": 0.0784
+      },
+      {
+        "nome": "polkit-gnome-authentication-agent-1",
+        "cpu": 0.0,
+        "ram": 0.1797
+      },
+      {
+        "nome": "polkitd",
+        "cpu": 0.0,
+        "ram": 0.1112
+      },
+      {
+        "nome": "pool_workqueue_release",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "power-profiles-daemon",
+        "cpu": 0.0,
+        "ram": 0.0863
+      },
+      {
+        "nome": "python",
+        "cpu": 0.0833,
+        "ram": 0.2779
+      },
+      {
+        "nome": "python3",
+        "cpu": 0.0,
+        "ram": 0.0943
+      },
+      {
+        "nome": "rcu_preempt",
+        "cpu": 0.0333,
+        "ram": 0.0
+      },
+      {
+        "nome": "rcu_tasks_kthread",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "rcu_tasks_rude_kthread",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "rcu_tasks_trace_kthread",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "rtkit-daemon",
+        "cpu": 0.0,
+        "ram": 0.044
+      },
+      {
+        "nome": "sh",
+        "cpu": 0.0,
+        "ram": 0.0088
+      },
+      {
+        "nome": "smartd",
+        "cpu": 0.0,
+        "ram": 0.0328
+      },
+      {
+        "nome": "snapd",
+        "cpu": 0.0,
+        "ram": 0.5911
+      },
+      {
+        "nome": "ssh-agent",
+        "cpu": 0.0,
+        "ram": 0.0092
+      },
+      {
+        "nome": "sshd",
+        "cpu": 0.0,
+        "ram": 0.0568
+      },
+      {
+        "nome": "suspend_listene",
+        "cpu": 0.0667,
+        "ram": 0.0536
+      },
+      {
+        "nome": "systembus-notify",
+        "cpu": 0.0,
+        "ram": 0.0168
+      },
+      {
+        "nome": "systemd",
+        "cpu": 0.0,
+        "ram": 0.1476
+      },
+      {
+        "nome": "systemd-journald",
+        "cpu": 0.0,
+        "ram": 0.3684
+      },
+      {
+        "nome": "systemd-logind",
+        "cpu": 0.0,
+        "ram": 0.1018
+      },
+      {
+        "nome": "systemd-udevd",
+        "cpu": 0.0,
+        "ram": 0.0456
+      },
+      {
+        "nome": "udisksd",
+        "cpu": 0.0,
+        "ram": 0.1269
+      },
+      {
+        "nome": "upowerd",
+        "cpu": 0.0,
+        "ram": 0.0873
+      },
+      {
+        "nome": "uuidd",
+        "cpu": 0.0,
+        "ram": 0.02
+      },
+      {
+        "nome": "watchdogd",
+        "cpu": 0.0,
+        "ram": 0.0
+      },
+      {
+        "nome": "wireplumber",
+        "cpu": 0.1167,
+        "ram": 0.245
+      },
+      {
+        "nome": "wpa_supplicant",
+        "cpu": 0.0,
+        "ram": 0.0696
+      },
+      {
+        "nome": "x-session-manager",
+        "cpu": 0.0,
+        "ram": 0.2158
+      },
+      {
+        "nome": "xapp-sn-watcher",
+        "cpu": 0.0,
+        "ram": 0.2385
+      },
+      {
+        "nome": "xdg-desktop-portal",
+        "cpu": 0.0,
+        "ram": 0.1401
+      },
+      {
+        "nome": "xdg-desktop-portal-gtk",
+        "cpu": 0.0333,
+        "ram": 0.4204
+      },
+      {
+        "nome": "xdg-document-portal",
+        "cpu": 0.0,
+        "ram": 0.1098
+      },
+      {
+        "nome": "xdg-permission-store",
+        "cpu": 0.0,
+        "ram": 0.0808
+      }
+    ],
+    "processos_completos": true
+  }
+]
