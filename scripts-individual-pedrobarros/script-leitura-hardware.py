@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 s3 = boto3.client('s3')
 
-def buscar_ultimo_arquivo_s3(bucket, prefixo='bronze/hardware/'):
+def buscar_ultimo_arquivo_s3(bucket, prefixo='bronze/hardware/}'):
     resposta = s3.list_objects_v2(Bucket=bucket, Prefix=prefixo)
     if 'Contents' not in resposta:
         raise FileNotFoundError(
@@ -75,7 +75,7 @@ def processar_arquivo_s3(bucket, arquivo):
                 valor = valor.strip()
             else:
                 valor = ''
-            if campo == 'id' or campo == 'data_hora':
+            if campo in ('id', 'data_hora', 'inicio', 'fim', 'id_mac', 'empresa_id', 'servidor_id'):
                 registro[campo] = valor
             else:
                 try:
@@ -106,8 +106,10 @@ def processar_arquivo_s3(bucket, arquivo):
                 'maximo': round(max(valores), 2),
             }
 
-    inicio = dados_tratados[0]['data_hora']
-    fim = dados_tratados[-1]['data_hora']
+    inicio = dados_tratados[0].get('data_hora') or dados_tratados[0].get('inicio')
+    fim = dados_tratados[-1].get('data_hora') or dados_tratados[-1].get('fim') or dados_tratados[-1].get('inicio')
+    if not inicio or not fim:
+        raise ValueError('O CSV precisa conter data_hora ou inicio/fim.')
     
     silver = {
         'empresa': empresa,
@@ -280,12 +282,14 @@ def _ler_amostras_historicas(bucket, chaves):
         conteudo = resposta['Body'].read().decode('utf-8-sig')
         leitor = csv.DictReader(io.StringIO(conteudo), delimiter=';')
         for linha in leitor:
-            instante = _timestamp_previsibilidade(linha.get('data_hora'))
+            instante = _timestamp_previsibilidade(
+                linha.get('data_hora') or linha.get('inicio') or linha.get('INICIO_AMOSTRA')
+            )
             if instante is None:
                 continue
             registro = {'data_hora': instante.isoformat(sep=' '), '_instante': instante}
             for campo, valor in linha.items():
-                if campo in ('id', 'data_hora') or campo is None:
+                if campo in ('id', 'data_hora', 'inicio', 'fim', 'INICIO_AMOSTRA', 'FIM_AMOSTRA') or campo is None:
                     continue
                 numero = _numero_previsibilidade(valor)
                 if numero is not None:

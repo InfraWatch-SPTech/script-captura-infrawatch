@@ -1,6 +1,6 @@
 import psutil
 import csv
-from datetime import datetime
+from datetime import datetime, timezone
 import time
 import os
 import uuid
@@ -9,6 +9,7 @@ import io
 import pymysql as mysql 
 import sys
 import json
+from pathlib import Path
 import urllib.request
 import urllib.error
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -60,6 +61,23 @@ def limpar_tela():
 # Carrega as variáveis do .env para o ambiente
 load_dotenv()
 
+# Campos adicionais para a dashboard histórica, dentro do CSV consolidado.
+PASTA_SCRIPT = Path(__file__).resolve().parent
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID") or os.getenv("AWS_ACESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY") or os.getenv("AWS_SECRET_KEY")
+AWS_REGION = os.getenv("AWS_REGION") or "us-east-1"
+QUANTIDADE_AMOSTRAS = int(os.getenv("QUANTIDADE_AMOSTRAS") or "15")
+INTERVALO_SEGUNDOS = float(os.getenv("INTERVALO_SEGUNDOS") or "5")
+CAMINHO_DISCO = os.getenv("CAMINHO_DISCO") or os.path.abspath(os.sep)
+CAPACIDADE_REDE_MBPS = float(os.getenv("CAPACIDADE_REDE_MBPS") or "100")
+BUCKET_BRONZE = (os.getenv("S3_BUCKET_BRONZE") or "").strip()
+PREFIXO_BRONZE = (os.getenv("S3_PREFIX_BRONZE") or "bronze/hardware/").strip("/")
+PASTA_LOCAL = Path(os.getenv("DIRETORIO_DADOS") or PASTA_SCRIPT / "dados")
+CAMPOS_COMPONENTES = {"CPU": "cpu", "RAM": "ram", "ARMAZENAMENTO": "disco", "DISCO": "disco", "REDE": "rede"}
+PREFIXOS_REDE_IGNORADOS = ("lo", "docker", "veth", "br-", "virbr", "vmnet", "vboxnet")
+if QUANTIDADE_AMOSTRAS < 1 or INTERVALO_SEGUNDOS <= 0 or INTERVALO_SEGUNDOS > 290:
+    raise ValueError("Use QUANTIDADE_AMOSTRAS >= 1 e INTERVALO_SEGUNDOS entre 0 e 290.")
+
 # Variáveis AWS
 AWS_ACESS_KEY_ID = os.getenv("AWS_ACESS_KEY_ID") or None # Em caso de variável vazia, retorna None
 AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY") or None
@@ -96,6 +114,8 @@ if REQUEST_PROBE_METHOD not in ("GET", "POST"):
 # 1. CONEXÃO COM O S3
 # ============================================================
 BUCKET = "infrawatch-server-s3"
+if not BUCKET_BRONZE:
+    BUCKET_BRONZE = BUCKET
 
 s3 = boto3.client(
 "s3",
@@ -371,6 +391,17 @@ for ec in equip_comp:
         capturar_comp.append(ec['fkComponente'])
 
 
+componentes_dashboard = []
+for c in componentes_selecionados_objs:
+    campo = CAMPOS_COMPONENTES.get(c["tipo"].upper())
+    if campo and campo not in componentes_dashboard:
+        componentes_dashboard.append(campo)
+if not componentes_dashboard:
+    for c in componentes:
+        campo = CAMPOS_COMPONENTES.get(c["tipo"].upper())
+        if campo and campo not in componentes_dashboard:
+            componentes_dashboard.append(campo)
+
 # ============================================================
 # 7. MONTAGEM DO CSV EM MEMÓRIA
 # ============================================================
@@ -384,31 +415,59 @@ console.print(
 )
 console.print()
 
-# Monta o cabeçalho do CSV
-titulo_executados = "id;data_hora"
-
+# Monta o cabeçalho do CSV sem repetir a mesma métrica com nomes equivalentes.
+componentes_csv = []
+campos_componentes_csv = set()
 for comp_id in capturar_comp:
-    for c in componentes:
-        if comp_id == 6:
+    if comp_id == 6:
+        continue
+    for componente in componentes:
+        if comp_id != componente['idComponente']:
             continue
-        elif comp_id == c['idComponente']:
-            titulo_executados += f";{c['tipo']}"
+        tipo = componente['tipo']
+        campo = CAMPOS_COMPONENTES.get(tipo.upper(), tipo.upper())
+        if campo not in campos_componentes_csv:
+            componentes_csv.append(componente)
+            campos_componentes_csv.add(campo)
+
+titulo_executados = ['id', 'data_hora'] + [c['tipo'] for c in componentes_csv]
+campos_metricas_dashboard = [
+    campo for campo in ('cpu', 'ram', 'disco', 'rede')
+    if campo in componentes_dashboard and campo not in campos_componentes_csv
+]
+campos_rede_detalhados = (
+    ['rede_mbps', 'rede_capacidade_mbps', 'rede_capacidade_reserva']
+    if 'rede' in componentes_dashboard else []
+)
+colunas_sonda_http = [
+    'CONCORRENCIA_TESTE', 'REQUISICOES', 'REQUISICOES_SUCESSO',
+    'REQUISICOES_ERRO', 'REQUISICOES_POR_SEGUNDO',
+    'LATENCIA_MEDIA_MS', 'LATENCIA_P95_MS', 'LATENCIA_P99_MS',
+]
+colunas_captura = (
+    titulo_executados + colunas_sonda_http + ['INICIO_AMOSTRA', 'FIM_AMOSTRA']
+    + campos_metricas_dashboard + campos_rede_detalhados
+    + ['empresa_id', 'servidor_id', 'id_mac']
+)
 
 # EM MEMÓRIA
 csv_buffer = io.StringIO()
 writer = csv.writer(csv_buffer, delimiter=';')
-colunas_captura = titulo_executados.split(';') + [
-    'CONCORRENCIA_TESTE', 'REQUISICOES', 'REQUISICOES_SUCESSO',
-    'REQUISICOES_ERRO', 'REQUISICOES_POR_SEGUNDO',
-    'LATENCIA_MEDIA_MS', 'LATENCIA_P95_MS', 'LATENCIA_P99_MS',
-    'LATENCIA_MAX_MS'
-]
 writer.writerow(colunas_captura)
+
+# Os detalhes dos processos permanecem em um arquivo CSV separado do hardware.
+processos_buffer = io.StringIO()
+processos_writer = csv.writer(processos_buffer, delimiter=';')
+processos_writer.writerow([
+    'ID_EQUIPAMENTO', 'DATA_HORA', 'PID', 'PROCESSO', 'CPU_AGREGADA',
+    'RAM_AGREGADA', 'RAM_PROCESSO', 'TAMANHO_MB', 'CAMINHO',
+])
+processos_tem_dados = False
 
 # GERAR ARQUIVO .CSV TESTE
 # with open('./dados.csv', 'w', newline='', encoding="utf-8") as csvfile:
 #     writer = csv.writer(csvfile, delimiter=';')
-#     writer.writerow(titulo_executados.split(';'))
+#     writer.writerow(titulo_executados)
 
 
 # ============================================================
@@ -520,7 +579,146 @@ def capturar_requisicoes_http(nivel_concorrencia):
     ]
 
 # ============================================================
-# 7. EXECUÇÃO DA CAPTURA (5 AMOSTRAS)
+# 9. FUNÇÕES DE CAPTURA PARA O CSV COMPLETO
+# ============================================================
+def interfaces_de_rede():
+    # Retorna as placas físicas ativas e a velocidade de cada uma (Mbps)
+    estados = psutil.net_if_stats()
+    placas = {}
+    for nome in estados:
+        if nome.startswith(PREFIXOS_REDE_IGNORADOS):
+            continue
+        if not estados[nome].isup:
+            continue
+        placas[nome] = estados[nome].speed
+    return placas
+
+
+def ler_contadores_rede(placas):
+    contadores = psutil.net_io_counters(pernic=True)
+    leitura = {}
+    for nome in placas:
+        if nome in contadores:
+            leitura[nome] = (contadores[nome].bytes_recv, contadores[nome].bytes_sent)
+    return leitura
+
+
+def calcular_uso_rede(placas, antes, depois, segundos):
+    # Uso da rede = maior direção (download ou upload) / capacidade da placa.
+    # Se a velocidade vier 0, usa CAPACIDADE_REDE_MBPS como reserva.
+    capacidade_total = 0.0
+    mbps_recebido = 0.0
+    mbps_enviado = 0.0
+    usou_reserva = False
+    for nome in placas:
+        if nome not in antes or nome not in depois:
+            continue
+        velocidade = placas[nome]
+        if velocidade <= 0:
+            velocidade = CAPACIDADE_REDE_MBPS
+            usou_reserva = True
+        capacidade_total += velocidade
+        mbps_recebido += (depois[nome][0] - antes[nome][0]) * 8 / segundos / 1_000_000
+        mbps_enviado += (depois[nome][1] - antes[nome][1]) * 8 / segundos / 1_000_000
+
+    if capacidade_total <= 0:
+        return None, None, None, usou_reserva
+
+    maior_direcao = max(mbps_recebido, mbps_enviado)
+    uso = min(100.0, maior_direcao / capacidade_total * 100)
+    return round(uso, 2), round(maior_direcao, 3), capacidade_total, usou_reserva
+
+
+def ler_processos():
+    # Tempo de CPU acumulado + % de RAM de cada processo
+    processos = {}
+    completo = True
+    for proc in psutil.process_iter():
+        try:
+            with proc.oneshot():
+                chave = (proc.pid, proc.create_time())
+                tempos = proc.cpu_times()
+                processos[chave] = (proc.name(), tempos.user + tempos.system, proc.memory_percent())
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            completo = False
+    return processos, completo
+
+
+def calcular_processos(antes, depois, segundos):
+    # CPU do processo = tempo de CPU usado no intervalo / tempo / núcleos
+    nucleos = psutil.cpu_count() or 1
+    agrupados = {}
+    for chave in depois:
+        if chave not in antes:
+            continue  # processo nasceu no meio do intervalo
+        nome, tempo_cpu, ram = depois[chave]
+        if nome not in agrupados:
+            agrupados[nome] = {"nome": nome, "cpu": 0.0, "ram": 0.0}
+        uso_cpu = max(0.0, tempo_cpu - antes[chave][1]) / segundos / nucleos * 100
+        agrupados[nome]["cpu"] += uso_cpu
+        agrupados[nome]["ram"] += ram
+
+    lista = []
+    for nome in sorted(agrupados):
+        processo = agrupados[nome]
+        processo["cpu"] = round(min(processo["cpu"], 100.0), 4)
+        processo["ram"] = round(min(processo["ram"], 100.0), 4)
+        lista.append(processo)
+    return lista
+
+
+def capturar_amostra():
+    # Uma amostra = um intervalo de INTERVALO_SEGUNDOS segundos
+    placas = interfaces_de_rede() if "rede" in componentes_dashboard else {}
+    rede_antes = ler_contadores_rede(placas)
+    processos_antes, completo_antes = ler_processos()
+    psutil.cpu_percent(interval=None)  # prepara o contador de CPU
+
+    inicio = datetime.now(timezone.utc)
+    relogio = time.monotonic()
+    time.sleep(INTERVALO_SEGUNDOS)
+
+    cpu = psutil.cpu_percent(interval=None)
+    fim = datetime.now(timezone.utc)
+    segundos = time.monotonic() - relogio
+    rede_depois = ler_contadores_rede(placas)
+    processos_depois, completo_depois = ler_processos()
+
+    amostra = {
+        "versao": 2,
+        "empresa_id": str(equipamento_atual["fkEmpresa"]),
+        "servidor_id": str(equipamento_atual["idEquipamento"]),
+        "id_mac": str(id_mac),
+        "inicio": inicio.isoformat(),
+        "fim": fim.isoformat(),
+        "cpu": None,
+        "ram": None,
+        "disco": None,
+        "rede": None,
+    }
+
+    # Só preenche os componentes ativos no cadastro; os demais ficam null
+    if "cpu" in componentes_dashboard:
+        amostra["cpu"] = cpu
+    if "ram" in componentes_dashboard:
+        amostra["ram"] = psutil.virtual_memory().percent
+    if "disco" in componentes_dashboard:
+        amostra["disco"] = psutil.disk_usage(CAMINHO_DISCO).percent
+    if "rede" in componentes_dashboard:
+        uso, mbps, capacidade, reserva = calcular_uso_rede(placas, rede_antes, rede_depois, segundos)
+        amostra["rede"] = uso
+        amostra["rede_mbps"] = mbps
+        amostra["rede_capacidade_mbps"] = capacidade
+        amostra["rede_capacidade_reserva"] = reserva
+
+    amostra["processos"] = calcular_processos(processos_antes, processos_depois, segundos)
+    amostra["processos_completos"] = completo_antes and completo_depois
+    return amostra
+
+
+
+# ============================================================
+# 10. EXECUÇÃO DA CAPTURA CSV E TESTE HTTP (15 AMOSTRAS)
 # ============================================================
 with Progress(
     TextColumn(f"[bold {AZUL_CLARO}]Capturando[/bold {AZUL_CLARO}]"),
@@ -537,20 +735,58 @@ with Progress(
         valores_capturados = []
         for comp_id in capturar_comp:
             if comp_id == 6:
-                csv_processos = capturar_processos()
                 enviar_processos = True
-            else:
-                for c in componentes:
-                    if comp_id == c['idComponente']:
-                        val = eval(c['codigo'])
-                        valores_capturados.append(val)
+        for componente in componentes_csv:
+            val = eval(componente['codigo'])
+            valores_capturados.append(val)
         
+        # Captura hardware e rede; processos são gravados separadamente abaixo.
+        amostra_dashboard = capturar_amostra()
         data_hora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        valores_dashboard = [amostra_dashboard["inicio"], amostra_dashboard["fim"]]
+        valores_dashboard.extend(amostra_dashboard[campo] for campo in campos_metricas_dashboard)
+        valores_dashboard.extend(amostra_dashboard.get(campo) for campo in campos_rede_detalhados)
+        valores_dashboard.extend([
+            str(equipamento_atual["fkEmpresa"]),
+            str(equipamento_atual["idEquipamento"]),
+            str(id_mac),
+        ])
 
-        # EM MEMÓRIA
+        inventario_processos = []
+        if enviar_processos:
+            csv_processos = capturar_processos()
+            inventario_csv = csv.reader(io.StringIO(csv_processos.getvalue()), delimiter=';')
+            next(inventario_csv, None)  # remove o cabeçalho do inventário
+            inventario_processos = list(inventario_csv)
+
+        metadados_por_nome = {}
+        for processo in inventario_processos:
+            pid, nome, ram, tamanho, caminho = processo
+            metadados_por_nome.setdefault(nome, []).append((pid, ram, tamanho, caminho))
+
+        for processo in amostra_dashboard["processos"]:
+            metadados = metadados_por_nome.get(processo["nome"], [])
+            pid, ram_processo, tamanho, caminho = metadados.pop(0) if metadados else ("", "", "", "")
+            processos_writer.writerow([
+                equipamento_atual["idEquipamento"], data_hora, pid,
+                processo["nome"], processo["cpu"], processo["ram"],
+                ram_processo, tamanho, caminho,
+            ])
+            processos_tem_dados = True
+
+        # Mantém os processos que só aparecem no inventário (PID, tamanho e caminho).
+        for nome, metadados in metadados_por_nome.items():
+            for pid, ram, tamanho, caminho in metadados:
+                processos_writer.writerow([
+                    equipamento_atual["idEquipamento"], data_hora, pid,
+                    nome, "", "", ram, tamanho, caminho,
+                ])
+                processos_tem_dados = True
+
+        # EM MEMÓRIA: métricas cadastradas, sonda HTTP e hardware na linha principal.
         writer.writerow(
             [equipamento_atual['idEquipamento'], data_hora] +
-            valores_capturados + metricas_requisicoes
+            valores_capturados + metricas_requisicoes + valores_dashboard
         )
 
         # GERAR ARQUIVO .CSV TESTE
@@ -565,7 +801,7 @@ with Progress(
 
 
 # ============================================================
-# 8. ENVIO DO ARQUIVO CSV PARA O S3 (BRONZE)
+# 11. ENVIO DOS ARQUIVOS CSV PARA O S3 (BRONZE)
 # ============================================================
 timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
@@ -574,6 +810,9 @@ nome_arquivo = f"captura_{timestamp}.csv"
 
 # Exemplo de caminho: bronze/InfraWatch/1/captura_2026-10-01_19-45-00.csv
 arquivo_s3 = f"bronze/hardware/{nome_empresa}/{equipamento_atual['idEquipamento']}/{nome_arquivo}"
+caminho_csv_local = PASTA_LOCAL / arquivo_s3
+caminho_csv_local.parent.mkdir(parents=True, exist_ok=True)
+caminho_csv_local.write_text(csv_buffer.getvalue(), encoding="utf-8")
 
 with console.status(f"[bold {AZUL_CLARO}]Enviando captura CSV para a zona Bronze do S3...[/bold {AZUL_CLARO}]", spinner="dots"):
     s3.put_object(
@@ -583,24 +822,30 @@ with console.status(f"[bold {AZUL_CLARO}]Enviando captura CSV para a zona Bronze
         ContentType="text/csv"
     )
 
-nome_arquivo_processos = f"captura_processos_{timestamp}.csv"
-arquivo_processos_s3 = f"bronze/processo/{nome_empresa}/{equipamento_atual['idEquipamento']}/{nome_arquivo_processos}"
-
-if (enviar_processos) :
-    with console.status(f"[bold {AZUL_CLARO}]Enviando processos CSV para a zona Bronze do S3...[/bold {AZUL_CLARO}]", spinner="dots"):
+arquivo_processos_s3 = None
+caminho_processos_local = None
+if processos_tem_dados:
+    nome_arquivo_processos = f"captura_processos_{timestamp}.csv"
+    arquivo_processos_s3 = f"bronze/processo/{nome_empresa}/{equipamento_atual['idEquipamento']}/{nome_arquivo_processos}"
+    caminho_processos_local = PASTA_LOCAL / arquivo_processos_s3
+    caminho_processos_local.parent.mkdir(parents=True, exist_ok=True)
+    caminho_processos_local.write_text(processos_buffer.getvalue(), encoding="utf-8")
+    with console.status(f"[bold {AZUL_CLARO}]Enviando captura de processos para a zona Bronze do S3...[/bold {AZUL_CLARO}]", spinner="dots"):
         s3.put_object(
             Bucket=BUCKET,
             Key=arquivo_processos_s3,
-            Body=csv_processos.getvalue().encode("utf-8"),
+            Body=processos_buffer.getvalue().encode("utf-8"),
             ContentType="text/csv"
         )
+
 
 console.print()
 console.print(
     Panel(
         f"[bold white]Captura enviada para o S3 com sucesso![/bold white]\n\n"
         f"[dim white]Bucket:[/dim white] [bold {AZUL_CLARO}]{BUCKET}[/bold {AZUL_CLARO}]\n"
-        f"[dim white]Caminho Bronze:[/dim white] [bold {AZUL_CLARO}]{arquivo_s3}[/bold {AZUL_CLARO}]",
+        f"[dim white]Caminho Bronze hardware:[/dim white] [bold {AZUL_CLARO}]{arquivo_s3}[/bold {AZUL_CLARO}]\n"
+        f"[dim white]Caminho Bronze processos:[/dim white] [bold {AZUL_CLARO}]{arquivo_processos_s3 or 'não gerado'}[/bold {AZUL_CLARO}]",
         title=f"[bold {AZUL_CLARO}]UPLOAD CONCLUÍDO[/bold {AZUL_CLARO}]",
         border_style=AZUL_CLARO,
         style=f"on {PRETO}",
@@ -608,5 +853,11 @@ console.print(
     )
 )
 # -- FIM COMENTAR PARA TESTE
+
+
+# ============================================================
+# 12. ARQUIVOS CSV SEPARADOS DE HARDWARE E PROCESSOS
+# ============================================================
+console.print(f"[dim white]CSV de hardware salvo localmente em: {caminho_csv_local}[/dim white]")
 
 console.print(Align.center("[dim white]Obrigada por escolher a InfraWatch![/dim white]"))

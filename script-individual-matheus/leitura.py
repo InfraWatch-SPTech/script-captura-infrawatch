@@ -1,7 +1,7 @@
 # ============================================================
 # LEITURA / ETL INDIVIDUAL - MATHEUS (roda na AWS Lambda)
 # ------------------------------------------------------------
-# Bronze (JSON da captura)
+# Bronze (CSV ou JSON da captura)
 #   -> limpa e valida as amostras         -> Silver (normalizado.json)
 #   -> separa só o que a dashboard usa    -> Gold   (dashboard.json)
 #
@@ -14,6 +14,7 @@
 # Uso na Lambda:      handler = leitura.lambda_handler
 # ============================================================
 import argparse
+import csv
 import json
 import math
 import os
@@ -57,6 +58,7 @@ def prefixo(nome_variavel, padrao):
 def buscar_configuracao():
     return {
         "bronze": prefixo("S3_PREFIX_BRONZE", "bronze/hardware/"),
+        "processos": prefixo("S3_PREFIX_PROCESSO", "bronze/processo/"),
         "silver": prefixo("S3_PREFIX_SILVER", "silver/"),
         "gold": prefixo("S3_PREFIX_GOLD", "gold/"),
         "bucket_bronze": os.getenv("S3_BUCKET_BRONZE"),
@@ -89,13 +91,14 @@ def listar_bronze(config, pasta_local=None, s3=None):
         raiz = Path(pasta_local)
         pasta_bronze = raiz / config["bronze"]
         if pasta_bronze.is_dir():
-            for caminho in pasta_bronze.rglob("*.json"):
-                arquivos.append(caminho.relative_to(raiz).as_posix())
+            for extensao in ("*.json", "*.csv"):
+                for caminho in pasta_bronze.rglob(extensao):
+                    arquivos.append(caminho.relative_to(raiz).as_posix())
     else:
         paginador = s3.get_paginator("list_objects_v2")
         for pagina in paginador.paginate(Bucket=config["bucket_bronze"], Prefix=config["bronze"]):
             for objeto in pagina.get("Contents", []):
-                if objeto["Key"].endswith(".json"):
+                if objeto["Key"].endswith((".json", ".csv")):
                     arquivos.append(objeto["Key"])
     return sorted(arquivos)
 
@@ -106,6 +109,30 @@ def ler_arquivo(chave, config, pasta_local=None, s3=None):
     else:
         resposta = s3.get_object(Bucket=config["bucket_bronze"], Key=chave)
         conteudo = resposta["Body"].read().decode("utf-8-sig")
+    if chave.lower().endswith(".csv"):
+        linhas = list(csv.DictReader(conteudo.splitlines(), delimiter=";"))
+        for linha in linhas:
+            for campo in ("processos", "PROCESSOS_CPU_RAM"):
+                if linha.get(campo):
+                    linha["processos"] = json.loads(linha[campo])
+                    break
+            if linha.get("processos_completos"):
+                linha["processos_completos"] = linha["processos_completos"].strip().lower() in ("1", "true", "sim")
+            if not linha.get("cpu") and linha.get("CPU_PCT"):
+                linha["cpu"] = linha["CPU_PCT"]
+            if not linha.get("ram") and linha.get("RAM_PCT"):
+                linha["ram"] = linha["RAM_PCT"]
+            if not linha.get("disco") and linha.get("DISCO_PCT"):
+                linha["disco"] = linha["DISCO_PCT"]
+            if not linha.get("rede") and linha.get("REDE_PCT"):
+                linha["rede"] = linha["REDE_PCT"]
+            # Arquivos legados mantêm os IDs e horário nos campos originais.
+            linha.setdefault("servidor_id", linha.get("id"))
+            linha.setdefault("inicio", linha.get("data_hora"))
+            if not linha.get("fim") and linha.get("inicio"):
+                linha["fim"] = linha["inicio"]
+        return linhas
+
     dados = json.loads(conteudo)
     if isinstance(dados, dict):
         dados = [dados]
@@ -118,6 +145,42 @@ def ids_do_caminho(chave, config):
     if len(partes) != 3 or not partes[0].isdigit() or not partes[1].isdigit():
         return None, None
     return str(int(partes[0])), str(int(partes[1]))
+
+
+def ler_processos_separados(config, pasta_local=None, s3=None):
+    """Lê CSVs de processos separados e agrupa-os pelo intervalo amostrado."""
+    arquivos = []
+    if pasta_local is not None:
+        raiz = Path(pasta_local)
+        pasta_processos = raiz / config["processos"]
+        if pasta_processos.is_dir():
+            arquivos = [caminho for caminho in pasta_processos.rglob("*.csv")]
+    else:
+        paginador = s3.get_paginator("list_objects_v2")
+        for pagina in paginador.paginate(Bucket=config["bucket_bronze"], Prefix=config["processos"]):
+            arquivos.extend(objeto["Key"] for objeto in pagina.get("Contents", [])
+                            if objeto.get("Key", "").lower().endswith(".csv"))
+
+    agrupados = {}
+    for arquivo in arquivos:
+        if pasta_local is not None:
+            conteudo = arquivo.read_text(encoding="utf-8-sig")
+        else:
+            conteudo = s3.get_object(Bucket=config["bucket_bronze"], Key=arquivo)["Body"].read().decode("utf-8-sig")
+        for linha in csv.DictReader(conteudo.splitlines(), delimiter=";"):
+            chave = (str(linha.get("empresa_id", "")), str(linha.get("servidor_id", "")), linha.get("inicio", ""))
+            if not all(chave):
+                continue
+            amostra = agrupados.setdefault(chave, {"processos": [], "processos_completos": False})
+            amostra["processos_completos"] = str(linha.get("processos_completos", "")).strip().lower() in ("1", "true", "sim")
+            nome = (linha.get("processo") or "").strip()
+            if nome:
+                amostra["processos"].append({
+                    "nome": nome,
+                    "cpu": float(linha.get("cpu") or 0),
+                    "ram": float(linha.get("ram") or 0),
+                })
+    return agrupados
 
 
 # ============================================================
@@ -133,7 +196,7 @@ def converter_data(valor):
 
 def percentual(valor):
     # Retorna None quando não há valor; erro quando o valor é inválido
-    if valor is None:
+    if valor is None or valor == "":
         return None
     if isinstance(valor, bool):
         raise ValueError("percentual inválido")
@@ -249,8 +312,9 @@ def executar_etl(pasta_local=None):
         s3 = conectar_s3()
 
     arquivos = listar_bronze(config, pasta_local, s3)
+    processos_por_amostra = ler_processos_separados(config, pasta_local, s3)
     if not arquivos:
-        raise FileNotFoundError("Nenhum JSON encontrado na Bronze.")
+        raise FileNotFoundError("Nenhum arquivo CSV ou JSON encontrado na Bronze.")
 
     # Agrupa as amostras limpas por empresa
     por_empresa = {}
@@ -265,6 +329,9 @@ def executar_etl(pasta_local=None):
             linhas = ler_arquivo(chave, config, pasta_local, s3)
             limpas = []
             for linha in linhas:
+                chave_amostra = (empresa_id, servidor_id, str(linha.get("inicio", "")))
+                if not linha.get("processos") and chave_amostra in processos_por_amostra:
+                    linha.update(processos_por_amostra[chave_amostra])
                 limpas.append(limpar_amostra(linha, empresa_id, servidor_id))
         except (ValueError, KeyError, TypeError) as erro:
             print(f"Aviso: arquivo ignorado ({erro}): {chave}")
@@ -273,7 +340,7 @@ def executar_etl(pasta_local=None):
         if empresa_id not in por_empresa:
             por_empresa[empresa_id] = []
         por_empresa[empresa_id].extend(limpas)
-        print(f"JSON tratado: {chave} | amostras: {len(limpas)}")
+        print(f"Arquivo tratado: {chave} | amostras: {len(limpas)}")
 
     gerado_em = datetime.now(timezone.utc).isoformat()
     total = 0
@@ -303,7 +370,7 @@ def lambda_handler(event, context):
     novo_arquivo = False
     for registro in event.get("Records", []):
         chave = unquote_plus(registro.get("s3", {}).get("object", {}).get("key", ""))
-        if chave.startswith(config["bronze"]) and chave.endswith(".json"):
+        if chave.startswith(config["bronze"]) and chave.endswith((".json", ".csv")):
             novo_arquivo = True
     if not novo_arquivo:
         return {"ignorado": True}

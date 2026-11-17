@@ -11,7 +11,7 @@
 #   6. envia o arquivo para a Bronze no S3
 #
 # Diferenças necessárias para a dashboard individual:
-#   - gera JSON (e não CSV), no formato que o leitura.py espera
+#   - gera CSV único com métricas e processos em cada amostra
 #   - captura REDE quando ela estiver ativa no cadastro do servidor
 #   - captura processos (CPU e RAM) para o gráfico de processos
 #   - não usa eval() nem IDs fixos de componente: busca pelo TIPO
@@ -22,6 +22,7 @@ import time
 import os
 import uuid
 import json
+import csv
 import boto3
 import pymysql as mysql
 from pathlib import Path
@@ -106,7 +107,7 @@ CAMINHO_DISCO = os.getenv("CAMINHO_DISCO") or os.path.abspath(os.sep)
 # Usada SOMENTE quando o sistema informa velocidade 0 (comum em VM e Wi-Fi).
 CAPACIDADE_REDE_MBPS = float(os.getenv("CAPACIDADE_REDE_MBPS") or "100")
 
-# Bronze: bucket/prefixo do S3 e pasta local (cópia de segurança)
+# Bronze: bucket/prefixo do S3 e pasta local (cópia de segurança em CSV)
 BUCKET_BRONZE = (os.getenv("S3_BUCKET_BRONZE") or "").strip()
 PREFIXO_BRONZE = (os.getenv("S3_PREFIX_BRONZE") or "bronze/hardware/").strip("/")
 PASTA_LOCAL = Path(os.getenv("DIRETORIO_DADOS") or PASTA_SCRIPT / "dados")
@@ -122,7 +123,7 @@ LIMITES_PADRAO = [
     ("ARMAZENAMENTO", "USO_DISCO", 60.0, 90.0),
 ]
 
-# Tipo do componente no banco -> campo no JSON
+# Tipo do componente no banco -> coluna da captura
 CAMPOS_COMPONENTES = {
     "CPU": "cpu",
     "RAM": "ram",
@@ -498,12 +499,61 @@ def capturar_amostra():
     return amostra
 
 
-def salvar_local(caminho, dados):
-    # Grava primeiro em .tmp e depois troca, para não corromper o arquivo
+COLUNAS_CSV = [
+    "versao", "empresa_id", "servidor_id", "id_mac", "inicio", "fim",
+    "cpu", "ram", "disco", "rede", "rede_mbps",
+    "rede_capacidade_mbps", "rede_capacidade_reserva",
+]
+COLUNAS_PROCESSOS_CSV = [
+    "empresa_id", "servidor_id", "id_mac", "inicio", "fim",
+    "processo", "cpu", "ram", "processos_completos",
+]
+
+
+def amostra_para_linha(amostra):
+    # O arquivo de hardware mantém apenas métricas do equipamento.
+    return {coluna: amostra.get(coluna) for coluna in COLUNAS_CSV}
+
+
+def processos_para_linhas(amostra):
+    # Cada processo ocupa uma linha própria no CSV de processos.
+    linhas = [
+        {
+            "empresa_id": amostra["empresa_id"],
+            "servidor_id": amostra["servidor_id"],
+            "id_mac": amostra["id_mac"],
+            "inicio": amostra["inicio"],
+            "fim": amostra["fim"],
+            "processo": processo["nome"],
+            "cpu": processo["cpu"],
+            "ram": processo["ram"],
+            "processos_completos": amostra["processos_completos"],
+        }
+        for processo in amostra["processos"]
+    ]
+    if not linhas:
+        linhas.append({
+            "empresa_id": amostra["empresa_id"],
+            "servidor_id": amostra["servidor_id"],
+            "id_mac": amostra["id_mac"],
+            "inicio": amostra["inicio"],
+            "fim": amostra["fim"],
+            "processo": "",
+            "cpu": "",
+            "ram": "",
+            "processos_completos": amostra["processos_completos"],
+        })
+    return linhas
+
+
+def salvar_local(caminho, linhas, colunas):
+    # Grava primeiro em .tmp e depois troca, para não corromper o arquivo.
     caminho.parent.mkdir(parents=True, exist_ok=True)
     temporario = caminho.with_suffix(".tmp")
-    with open(temporario, "w", encoding="utf-8") as arquivo:
-        json.dump(dados, arquivo, ensure_ascii=False, indent=2)
+    with open(temporario, "w", newline="", encoding="utf-8") as arquivo:
+        writer = csv.DictWriter(arquivo, fieldnames=colunas, delimiter=";")
+        writer.writeheader()
+        writer.writerows(linhas)
     temporario.replace(caminho)
 
 
@@ -521,13 +571,19 @@ console.print(
 console.print()
 
 timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-nome_arquivo = f"captura_{timestamp}_{uuid.uuid4().hex[:8]}.json"
+nome_arquivo = f"captura_{timestamp}_{uuid.uuid4().hex[:8]}.csv"
+nome_arquivo_processos = f"captura_processos_{timestamp}_{uuid.uuid4().hex[:8]}.csv"
 
-# Exemplo de caminho: bronze/hardware/2/1/captura_2026-11-15_19-45-00_ab12cd34.json
+# Hardware e processos seguem arquivos Bronze separados.
 arquivo_s3 = f"{PREFIXO_BRONZE}/{equipamento_atual['fkEmpresa']}/{equipamento_atual['idEquipamento']}/{nome_arquivo}"
+prefixo_processos = (os.getenv("S3_PREFIX_PROCESSO") or "bronze/processo/").strip("/")
+arquivo_processos_s3 = f"{prefixo_processos}/{equipamento_atual['fkEmpresa']}/{equipamento_atual['idEquipamento']}/{nome_arquivo_processos}"
 caminho_local = PASTA_LOCAL / arquivo_s3
+caminho_processos_local = PASTA_LOCAL / arquivo_processos_s3
 
 amostras = []
+linhas_csv = []
+linhas_processos_csv = []
 try:
     with Progress(
         TextColumn(f"[bold {AZUL_CLARO}]Capturando[/bold {AZUL_CLARO}]"),
@@ -538,8 +594,12 @@ try:
     ) as progress:
         task = progress.add_task("captura", total=QUANTIDADE_AMOSTRAS)
         for i in range(QUANTIDADE_AMOSTRAS):
-            amostras.append(capturar_amostra())
-            salvar_local(caminho_local, amostras)  # salva após cada amostra
+            amostra = capturar_amostra()
+            amostras.append(amostra)
+            linhas_csv.append(amostra_para_linha(amostra))
+            linhas_processos_csv.extend(processos_para_linhas(amostra))
+            salvar_local(caminho_local, linhas_csv, COLUNAS_CSV)  # salva após cada amostra
+            salvar_local(caminho_processos_local, linhas_processos_csv, COLUNAS_PROCESSOS_CSV)
             progress.advance(task)
 except KeyboardInterrupt:
     console.print("[yellow]Captura interrompida; as amostras concluídas foram preservadas.[/yellow]")
@@ -550,12 +610,12 @@ if not amostras:
 
 
 # ============================================================
-# 7. ENVIO DO ARQUIVO JSON PARA O S3 (BRONZE)
+# 7. ENVIO DOS CSVs DE HARDWARE E PROCESSOS PARA O S3 (BRONZE)
 # ============================================================
 enviado = False
 if BUCKET_BRONZE:
     try:
-        with console.status(f"[bold {AZUL_CLARO}]Enviando captura JSON para a zona Bronze do S3...[/bold {AZUL_CLARO}]", spinner="dots"):
+        with console.status(f"[bold {AZUL_CLARO}]Enviando captura CSV para a zona Bronze do S3...[/bold {AZUL_CLARO}]", spinner="dots"):
             s3 = boto3.client(
                 "s3",
                 region_name=AWS_REGION,
@@ -566,12 +626,19 @@ if BUCKET_BRONZE:
             s3.put_object(
                 Bucket=BUCKET_BRONZE,
                 Key=arquivo_s3,
-                Body=json.dumps(amostras, ensure_ascii=False).encode("utf-8"),
-                ContentType="application/json"
+                Body=caminho_local.read_bytes(),
+                ContentType="text/csv"
             )
+            if linhas_processos_csv:
+                s3.put_object(
+                    Bucket=BUCKET_BRONZE,
+                    Key=arquivo_processos_s3,
+                    Body=caminho_processos_local.read_bytes(),
+                    ContentType="text/csv"
+                )
         enviado = True
     except Exception as erro:
-        console.print(f"[yellow]Não foi possível enviar ao S3 ({type(erro).__name__}). O JSON ficou salvo localmente.[/yellow]")
+        console.print(f"[yellow]Não foi possível enviar ao S3 ({type(erro).__name__}). O CSV ficou salvo localmente.[/yellow]")
         console.print("Detalhes:", str(erro), markup=False)
 
 console.print()
@@ -581,8 +648,10 @@ if enviado:
             f"[bold white]Captura enviada para o S3 com sucesso![/bold white]\n\n"
             f"[dim white]Amostras:[/dim white] [bold {AZUL_CLARO}]{len(amostras)}[/bold {AZUL_CLARO}]\n"
             f"[dim white]Bucket:[/dim white] [bold {AZUL_CLARO}]{BUCKET_BRONZE}[/bold {AZUL_CLARO}]\n"
-            f"[dim white]Caminho Bronze:[/dim white] [bold {AZUL_CLARO}]{arquivo_s3}[/bold {AZUL_CLARO}]\n"
-            f"[dim white]Cópia local:[/dim white] {caminho_local}",
+            f"[dim white]Caminho Bronze hardware:[/dim white] [bold {AZUL_CLARO}]{arquivo_s3}[/bold {AZUL_CLARO}]\n"
+            f"[dim white]Caminho Bronze processos:[/dim white] [bold {AZUL_CLARO}]{arquivo_processos_s3 if linhas_processos_csv else 'não gerado'}[/bold {AZUL_CLARO}]\n"
+            f"[dim white]CSV hardware:[/dim white] {caminho_local}\n"
+            f"[dim white]CSV processos:[/dim white] {caminho_processos_local}",
             title=f"[bold {AZUL_CLARO}]UPLOAD CONCLUÍDO[/bold {AZUL_CLARO}]",
             border_style=AZUL_CLARO,
             style=f"on {PRETO}",
@@ -594,11 +663,12 @@ else:
         Panel(
             f"[bold white]Captura salva no seu computador.[/bold white]\n\n"
             f"[dim white]Amostras:[/dim white] {len(amostras)}\n"
-            f"[dim white]Arquivo:[/dim white] {caminho_local}\n"
-            ("[dim white]Confira o erro acima e o destino configurado no .env.[/dim white]"
-             if BUCKET_BRONZE else
-             "[dim white]Configure S3_BUCKET_BRONZE no .env para enviar ao S3.[/dim white]"),
-            title=f"[bold {AZUL_CLARO}]JSON SALVO LOCALMENTE[/bold {AZUL_CLARO}]",
+            f"[dim white]CSV hardware:[/dim white] {caminho_local}\n"
+            f"[dim white]CSV processos:[/dim white] {caminho_processos_local}\n"
+            + ("[dim white]Confira o erro acima e o destino configurado no .env.[/dim white]"
+               if BUCKET_BRONZE else
+               "[dim white]Configure S3_BUCKET_BRONZE no .env para enviar ao S3.[/dim white]"),
+            title=f"[bold {AZUL_CLARO}]CSVs SALVOS LOCALMENTE[/bold {AZUL_CLARO}]",
             border_style=AZUL_CLARO,
             style=f"on {PRETO}",
             padding=(1, 2)
