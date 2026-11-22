@@ -73,7 +73,7 @@ PORT = int(os.getenv("PORT"))
 # ============================================================
 # 1. CONEXÃO COM O S3
 # ============================================================
-BUCKET = "infrawatch-server-s3"
+BUCKET = "data-lake-infrawatch"
 
 s3 = boto3.client(
 "s3",
