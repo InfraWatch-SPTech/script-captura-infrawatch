@@ -213,7 +213,6 @@ INSERT INTO empresa (nome, cnpj, email, codigo) VALUES
 ('XPTO Brasil', '98.765.432/0001-10', 'suporte@xpto.com', 'K492MLQX'),
 ('Empresa para Teste', NULL, 'teste@empresa.com', 'NOVA0001');
 
-select * from empresa;
 
 -- =============================================================
 -- 3. SEEDS DE USUARIOS
@@ -344,8 +343,61 @@ VALUES
 ('Switch Central', 'Switch', '192.168.1.30', 'Online', 'Sala de servidores', 'Switch central da rede', 2, 2, 3),
 ('Servidor Web XPTO', 'Servidor', '192.168.2.10', 'Atencao', 'Datacenter principal', 'Servidor web da XPTO Brasil', 3, 3, 4);
 
+-- Servidores extras da TechShield (empresa 2) usados pelo simulador-captura.py.
+-- Junto com os ids 1 e 2, totalizam 5 servidores para a simulacao.
+INSERT INTO equipamento
+(idEquipamento, nome, tipo, ip, status, localizacao, descricao,
+ fkEmpresa, fkEndereco, fkRelatorio)
+VALUES
+(5, 'Servidor Simulado 01', 'Servidor', '192.168.1.41', 'Online', 'Datacenter A', 'Servidor usado na simulacao', 2, 1, 1),
+(6, 'Servidor Simulado 02', 'Servidor', '192.168.1.42', 'Online', 'Datacenter A', 'Servidor usado na simulacao', 2, 1, 2),
+(7, 'Servidor Simulado 03', 'Servidor', '192.168.1.43', 'Online', 'Sala de servidores', 'Servidor usado na simulacao', 2, 2, 3);
 
-select * from equipamento;
+-- =============================================================
+-- 7.1. SEEDS DE USUARIO_EQUIPAMENTO
+-- Tabela de associacao entre usuario, equipe e equipamento.
+-- Regras adotadas (coerentes com os seeds de usuario_equipe):
+--   * A PK e (fkUsuario, fkEquipamento), logo cada par usuario/equipamento
+--     aparece uma unica vez, com uma unica equipe responsavel.
+--   * fkEquipe sempre corresponde a uma equipe da qual o usuario ja
+--     participa em usuario_equipe.
+--   * Usuarios comuns atendem equipamentos da sua empresa; o Root, por
+--     ser administrador global, atende a todos os equipamentos.
+-- Equipe 1 = Infraestrutura (servidores), 2 = Rede (switch),
+-- 3 = Alertas, 4 = Auditoria.
+-- =============================================================
+
+INSERT INTO usuario_equipamento (fkUsuario, fkEquipamento, fkEquipe) VALUES
+-- Root (usuario 1): participa de todas as equipes e cobre todos os equipamentos.
+(1, 1, 1), -- Servidor Principal        -> Infraestrutura
+(1, 2, 1), -- Servidor de Backup        -> Infraestrutura
+(1, 3, 2), -- Switch Central            -> Rede
+(1, 4, 4), -- Servidor Web XPTO         -> Auditoria
+(1, 5, 1), -- Servidor Simulado 01      -> Infraestrutura
+(1, 6, 1), -- Servidor Simulado 02      -> Infraestrutura
+(1, 7, 1), -- Servidor Simulado 03      -> Infraestrutura
+-- Mariana (usuario 2, administradora TechShield): equipes 1 e 2.
+(2, 1, 1),
+(2, 2, 1),
+(2, 3, 2),
+(2, 5, 1),
+(2, 6, 1),
+(2, 7, 1),
+-- Analista Geral (usuario 3): apenas equipe de Infraestrutura.
+(3, 1, 1),
+(3, 2, 1),
+(3, 5, 1),
+(3, 6, 1),
+(3, 7, 1),
+-- Analista de Alertas (usuario 4): apenas equipe de Alertas.
+(4, 1, 3),
+(4, 2, 3),
+(4, 3, 3),
+(4, 5, 3),
+(4, 6, 3),
+(4, 7, 3),
+-- Auditor XPTO (usuario 5): apenas equipe de Auditoria, equipamento da empresa 3.
+(5, 4, 4);
 
 -- =============================================================
 -- 8. SEEDS DE COMPONENTES
@@ -382,68 +434,29 @@ VALUES
 ('USO_DISCO', 75.00, 90.00, '%', 1, 4, 3),
 ('PROCESSOS_ATIVOS', 65.00, 80.00, 'Dict',1,1,6);
 
+-- Parametros dos servidores simulados (ids 5, 6 e 7) da TechShield.
+INSERT INTO parametro_alerta
+(nomeMetrica, limite_atencao, limite_critico, unidade, ativo, fkEquipamento, fkComponente)
+VALUES
+('USO_CPU', 70.00, 90.00, '%', 1, 5, 1),
+('USO_RAM', 75.00, 90.00, '%', 1, 5, 2),
+('USO_DISCO', 80.00, 95.00, '%', 1, 5, 3),
+('TEMPERATURA_CPU', 65.00, 80.00, 'C', 1, 5, 4),
+('PROCESSOS_ATIVOS', 65.00, 80.00, 'Dict', 1, 5, 6),
+('USO_CPU', 70.00, 90.00, '%', 1, 6, 1),
+('USO_RAM', 75.00, 90.00, '%', 1, 6, 2),
+('USO_DISCO', 80.00, 95.00, '%', 1, 6, 3),
+('TEMPERATURA_CPU', 65.00, 80.00, 'C', 1, 6, 4),
+('PROCESSOS_ATIVOS', 65.00, 80.00, 'Dict', 1, 6, 6),
+('USO_CPU', 70.00, 90.00, '%', 1, 7, 1),
+('USO_RAM', 75.00, 90.00, '%', 1, 7, 2),
+('USO_DISCO', 80.00, 95.00, '%', 1, 7, 3),
+('TEMPERATURA_CPU', 65.00, 80.00, 'C', 1, 7, 4),
+('PROCESSOS_ATIVOS', 65.00, 80.00, 'Dict', 1, 7, 6);
+
 -- =============================================================
--- 10. CONSULTAS PARA CONFERENCIA
+-- 10. USUÁRIOS PARA APLICAÇÕES
 -- =============================================================
-
--- Usuarios, niveis, permissoes e equipes.
-SELECT
-    u.idUsuario,
-    u.nome AS usuario,
-    e.nome AS empresa,
-    na.nome AS nivel_acesso,
-    GROUP_CONCAT(DISTINCT eq.nome SEPARATOR ', ') AS equipes,
-    COUNT(DISTINCT ue.fkEquipe) AS qtd_equipes,
-    p.nome AS permissao
-FROM usuario u
-JOIN empresa e
-    ON e.idEmpresa = u.fkEmpresa
-LEFT JOIN nivel_acesso na
-    ON na.fk_usuario = u.idUsuario
-LEFT JOIN permissoes_acesso pa
-    ON pa.fkNivelAcesso = na.idnivel_acesso
-LEFT JOIN permissao p
-    ON p.idPermissao = pa.fkPermissao
-LEFT JOIN usuario_equipe ue
-    ON ue.fkUsuario = u.idUsuario
-LEFT JOIN equipe eq
-    ON eq.idEquipe = ue.fkEquipe
-GROUP BY u.idUsuario, u.nome, e.nome, na.nome, p.idPermissao
-ORDER BY u.idUsuario, p.idPermissao;
-
--- Vinculos usuario-equipe (conferencia da regra:
--- admin em varias equipes, comum em apenas uma).
-SELECT
-    u.idUsuario,
-    u.nome AS usuario,
-    na.nome AS nivel_acesso,
-    GROUP_CONCAT(eq.nome SEPARATOR ', ') AS equipes,
-    COUNT(ue.fkEquipe) AS qtd_equipes
-FROM usuario u
-JOIN nivel_acesso na
-    ON na.fk_usuario = u.idUsuario
-LEFT JOIN usuario_equipe ue
-    ON ue.fkUsuario = u.idUsuario
-LEFT JOIN equipe eq
-    ON eq.idEquipe = ue.fkEquipe
-GROUP BY u.idUsuario, u.nome, na.nome
-ORDER BY u.idUsuario;
-
--- Equipamentos, componentes e limites de alerta.
-SELECT
-    eq.nome AS equipamento,
-    c.nome AS componente,
-    pa.nomeMetrica,
-    pa.limite_atencao,
-    pa.limite_critico,
-    pa.unidade,
-    pa.ativo
-FROM parametro_alerta pa
-JOIN equipamento eq
-    ON eq.idEquipamento = pa.fkEquipamento
-JOIN componente c
-    ON c.idComponente = pa.fkComponente
-ORDER BY eq.idEquipamento, c.idComponente;
 
 -- SCRIPT JAVA JIRA USER --
 DROP USER IF EXISTS 'infra_watch_java_jira'@'%';
@@ -455,9 +468,3 @@ DROP USER IF EXISTS 'infra_watch_captura'@'%';
 CREATE USER 'infra_watch_captura'@'%' IDENTIFIED BY 'Urubu100';
 GRANT all privileges  ON InfraWatch.* TO 'infra_watch_captura'@'%';
 FLUSH PRIVILEGES;
-
-
-select * from equipamento; 
-select * from usuario; 
-select * from parametro_alerta;
-select * from permissoes_acesso; 
