@@ -1,0 +1,6 @@
+boto3
+pymysql
+python-dotenv
+psutil
+rich
+pandas
