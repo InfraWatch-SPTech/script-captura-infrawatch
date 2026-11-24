@@ -719,7 +719,19 @@ def gerar_dashboard_matheus(bucket, empresa_pasta):
             'servidores': sorted({a['servidor_id'] for a in amostras}, key=int),
             'amostras': gold_amostras,
         }
-        salvar_adicional(bucket, f'gold/empresas/{empresa}/dashboard.json', gold)
+        for servidor in gold['servidores']:
+            gold_servidor = gold.copy()
+            gold_servidor['servidores'] = [servidor]
+            gold_servidor['amostras'] = [
+                amostra for amostra in gold['amostras']
+                if amostra['servidor_id'] == servidor
+            ]
+
+            salvar_adicional(
+                bucket,
+                f'gold/{empresa_pasta}/{servidor}/dashboard.json',
+                gold_servidor
+            )
     print(f'Dashboard Matheus: {len(por_empresa)} empresa(s); {invalidas} amostra(s) inválida(s).')
 
 
