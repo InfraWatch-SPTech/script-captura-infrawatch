@@ -3,13 +3,14 @@ import boto3
 import csv
 import io
 import json
+import os
 import urllib.parse
 import math
 from datetime import datetime, timedelta, timezone
 
 s3 = boto3.client('s3')
 
-def buscar_ultimo_arquivo_s3(bucket, prefixo='bronze/hardware/}'):
+def buscar_ultimo_arquivo_s3(bucket, prefixo='bronze/hardware/'):
     resposta = s3.list_objects_v2(Bucket=bucket, Prefix=prefixo)
     if 'Contents' not in resposta:
         raise FileNotFoundError(
@@ -33,7 +34,6 @@ def buscar_ultimo_arquivo_s3(bucket, prefixo='bronze/hardware/}'):
     return arquivo_mais_recente['Key']
 
 def processar_arquivo_s3(bucket, arquivo):
-    arquivo = urllib.parse.unquote_plus(arquivo)
     print(f'Processando arquivo: s3://{bucket}/{arquivo}')
     
     partes = arquivo.split('/')
@@ -50,8 +50,10 @@ def processar_arquivo_s3(bucket, arquivo):
     equipamento = partes[3]
     nome_arquivo = partes[4]
     
-    if categoria == 'processo':
-        print(f'Arquivo de processos {nome_arquivo} ignorado.')
+    if categoria != 'hardware':
+        raise ValueError(
+            f'Categoria inválida para este leitor: {categoria}. Esperado: hardware.'
+        )
 
     print(f'Categoria: {categoria}')
     print(f'Empresa: {empresa}')
@@ -511,8 +513,67 @@ def gerar_dash_previsibilidade_s3(bucket, arquivo_origem, empresa, equipamento):
     print(f'Arquivo Gold dashboard salvo em: s3://{bucket}/{arquivo_gold_dashboard}')
     return dashboard
 
+
+# ============================================================
+# ENTRADA DA AWS LAMBDA (gatilho: novo CSV na Bronze/hardware)
+# ============================================================
+
+PREFIXO_BRONZE_HARDWARE = os.getenv(
+    'S3_PREFIX_BRONZE_HARDWARE', 'bronze/hardware/'
+).strip('/') + '/'
+
+
+def _arquivos_do_evento_lambda(event):
+    """Extrai (bucket, key) de notificações S3 ou de um evento de teste simples."""
+    arquivos = []
+    for registro in event.get('Records') or []:
+        dados_s3 = registro.get('s3', {})
+        bucket = dados_s3.get('bucket', {}).get('name')
+        chave = dados_s3.get('object', {}).get('key')
+        if chave:
+            arquivos.append((bucket, urllib.parse.unquote_plus(chave)))
+
+    # Permite invocar manualmente a função com {"bucket": "...", "key": "..."}.
+    if not arquivos and event.get('key'):
+        arquivos.append((event.get('bucket'), urllib.parse.unquote_plus(event['key'])))
+
+    return arquivos
+
+
+def lambda_handler(event, context):
+    """Processa cada CSV de hardware recebido em uma notificação do S3."""
+    if not isinstance(event, dict):
+        raise ValueError('O evento da Lambda deve ser um objeto JSON.')
+
+    arquivos = _arquivos_do_evento_lambda(event)
+    if not arquivos:
+        print('Evento sem objetos S3 para processar.')
+        return {'processados': [], 'ignorados': 0}
+
+    bucket_padrao = os.getenv('S3_BUCKET') or os.getenv('BUCKET_NAME')
+    processados = []
+    ignorados = 0
+
+    for bucket, chave in arquivos:
+        if not chave.startswith(PREFIXO_BRONZE_HARDWARE) or not chave.lower().endswith('.csv'):
+            print(f'Objeto ignorado fora do prefixo esperado: {chave}')
+            ignorados += 1
+            continue
+
+        bucket = bucket or bucket_padrao
+        if not bucket:
+            raise ValueError(
+                'Bucket ausente no evento. Configure S3_BUCKET/BUCKET_NAME '
+                'ou use uma notificação do S3 com o nome do bucket.'
+            )
+
+        processar_arquivo_s3(bucket, chave)
+        processados.append({'bucket': bucket, 'key': chave})
+
+    return {'processados': processados, 'ignorados': ignorados}
+
 if __name__ == '__main__':
-    BUCKET = 'infrawatch-server-s3'
+    BUCKET = os.getenv('S3_BUCKET') or os.getenv('BUCKET_NAME') or 'infrawatch-server-s3'
     # Localiza automaticamente o arquivo .csv mais recente enviado na pasta bronze/hardware/
     ARQUIVO_MAIS_RECENTE = buscar_ultimo_arquivo_s3(
         BUCKET, prefixo='bronze/hardware/'
