@@ -27,7 +27,6 @@ def buscar_ultimo_arquivo_processos_s3(bucket, prefixo='bronze/processo/'):
     return arquivo_mais_recente[0]['Key']
                                                                                                                                                                                                                                                                                                                                                                                                                       
 def processar_arquivo_processos_s3(bucket, arquivo):
-    arquivo = urllib.parse.unquote_plus(arquivo)
     print(f'Processando arquivo de processos: s3://{bucket}/{arquivo}')
     partes = arquivo.split('/')
     # Estrutura: bronze / processo / empresa / equipamento / arquivo.csv
@@ -113,7 +112,7 @@ def processar_arquivo_processos_s3(bucket, arquivo):
             registro[metrica] for registro in dados_tratados if isinstance(registro[metrica], (int, float))
         ]
 
-    if valores:
+        if valores:
             estatisticas[metrica] = {
                 'media': round(sum(valores) / len(valores), 2),
                 'minimo': round(min(valores), 2),
@@ -203,7 +202,7 @@ def lambda_handler(event, context):
     for registro in event.get('Records') or []:
         dados_s3 = registro.get('s3', {})
         bucket = dados_s3.get('bucket', {}).get('name')
-        chave = dados_s3.get('object', {}).get('key', '')
+        chave = urllib.parse.unquote_plus(dados_s3.get('object', {}).get('key', ''))
 
         if (
             not bucket
@@ -215,6 +214,14 @@ def lambda_handler(event, context):
 
         resultado = processar_arquivo_processos_s3(bucket, chave)
         if resultado:
+            # Atualiza a dashboard caso esta rotina seja usada em outra Lambda.
+            import importlib.util
+            from pathlib import Path
+            caminho = Path(__file__).with_name('script-leitura-hardware.py')
+            spec = importlib.util.spec_from_file_location('leitor_hardware_grupo', caminho)
+            hardware = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(hardware)
+            hardware.gerar_dashboard_matheus(bucket, chave.split('/')[2])
             processados.append(json.loads(resultado['body']))
 
     return {'processados': processados, 'ignorados': ignorados}

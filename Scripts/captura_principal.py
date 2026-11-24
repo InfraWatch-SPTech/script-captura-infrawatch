@@ -1069,4 +1069,4 @@ console.print(
 # ============================================================
 console.print(f"[dim white]CSV de hardware salvo localmente em: {caminho_csv_local}[/dim white]")
 
-console.print(Align.center("[dim white]Obrigada por escolher a InfraWatch![/dim white]"))
+console.print(Align.center("[dim wgit hite]Obrigada por escolher a InfraWatch![/dim white]"))

@@ -155,6 +155,8 @@ def processar_arquivo_s3(bucket, arquivo):
 
     # Gera arquivos próprios da dashboard sem alterar os arquivos existentes.
     gerar_dash_previsibilidade_s3(bucket, arquivo, empresa, equipamento)
+    gerar_dashboard_matheus(bucket, empresa)
+    gerar_gestao_problemas_ana(bucket, arquivo, empresa)
 
 
 # ============================================================
@@ -515,6 +517,303 @@ def gerar_dash_previsibilidade_s3(bucket, arquivo_origem, empresa, equipamento):
 
 
 # ============================================================
+# ADIÇÕES: LEITURA DO MATHEUS E GESTÃO DE PROBLEMAS DA ANA
+# As saídas originais do grupo e a previsibilidade são mantidas.
+# ============================================================
+
+def listar_arquivos_adicionais(bucket, prefixo, extensoes=('.csv', '.json')):
+    arquivos = []
+    paginador = s3.get_paginator('list_objects_v2')
+    for pagina in paginador.paginate(Bucket=bucket, Prefix=prefixo):
+        for objeto in pagina.get('Contents', []):
+            if objeto['Key'].lower().endswith(extensoes):
+                arquivos.append(objeto['Key'])
+    return sorted(arquivos)
+
+
+def ler_registros_adicionais(bucket, chave):
+    conteudo = s3.get_object(Bucket=bucket, Key=chave)['Body'].read().decode('utf-8-sig')
+    if chave.lower().endswith('.csv'):
+        return list(csv.DictReader(io.StringIO(conteudo), delimiter=';'))
+    dados = json.loads(conteudo)
+    if isinstance(dados, list):
+        return dados
+    if isinstance(dados, dict):
+        return dados.get('amostras', [dados])
+    raise ValueError(f'Conteúdo inválido em {chave}')
+
+
+def salvar_adicional(bucket, chave, dados):
+    s3.put_object(
+        Bucket=bucket, Key=chave,
+        Body=json.dumps(dados, ensure_ascii=False, allow_nan=False).encode('utf-8'),
+        ContentType='application/json',
+    )
+    print(f'Arquivo adicional salvo: s3://{bucket}/{chave}')
+
+
+def numero_adicional(valor):
+    if valor in (None, ''):
+        return None
+    if isinstance(valor, bool):
+        raise ValueError('Booleano não é uma medição numérica.')
+    numero = float(str(valor).strip().replace(',', '.'))
+    if not math.isfinite(numero):
+        raise ValueError('Medição numérica não finita.')
+    return numero
+
+
+def campo_adicional(linha, *nomes):
+    for nome in nomes:
+        if linha.get(nome) not in (None, ''):
+            return linha[nome]
+    return None
+
+
+def data_adicional(valor):
+    data = datetime.fromisoformat(str(valor).strip().replace('Z', '+00:00'))
+    if data.tzinfo is None:
+        raise ValueError('Amostra sem fuso horário.')
+    return data.astimezone(timezone.utc)
+
+
+def id_adicional(valor):
+    texto = str(valor).strip()
+    if not texto.isdigit() or int(texto) <= 0:
+        raise ValueError(f'ID inválido: {texto}')
+    return str(int(texto))
+
+
+def normalizar_processos_adicionais(processos):
+    agrupados = {}
+    for processo in processos or []:
+        nome = str(campo_adicional(processo, 'nome', 'processo', 'PROCESSO', 'Processo') or '').strip()
+        cpu = numero_adicional(campo_adicional(processo, 'cpu', 'CPU_AGREGADA'))
+        ram = numero_adicional(campo_adicional(processo, 'ram', 'RAM_AGREGADA'))
+        # RAM_PROCESSO é inventário; não substituir RAM_AGREGADA por ela.
+        if not nome or (cpu is None and ram is None):
+            continue
+        atual = agrupados.setdefault(nome, {'nome': nome, 'cpu': None, 'ram': None})
+        for campo, valor in (('cpu', cpu), ('ram', ram)):
+            if valor is not None:
+                if not 0 <= valor <= 100:
+                    raise ValueError(f'Percentual inválido em {nome}/{campo}')
+                atual[campo] = min(100, (atual[campo] or 0) + valor)
+    return [agrupados[nome] for nome in sorted(agrupados)]
+
+
+def processos_por_intervalo(bucket, empresa_pasta):
+    agrupados = {}
+    prefixo = f'bronze/processo/{empresa_pasta}/'
+    for chave in listar_arquivos_adicionais(bucket, prefixo, ('.csv',)):
+        servidor_pasta = id_adicional(chave.split('/')[3])
+        por_arquivo = {}
+        for linha in ler_registros_adicionais(bucket, chave):
+            inicio = campo_adicional(linha, 'inicio', 'INICIO_AMOSTRA')
+            if not inicio:
+                continue  # Inventário antigo sem vínculo temporal: não inventar vínculo.
+            servidor = id_adicional(campo_adicional(linha, 'servidor_id', 'ID_EQUIPAMENTO') or servidor_pasta)
+            if servidor != servidor_pasta:
+                raise ValueError(f'Equipamento diferente do caminho: {chave}')
+            instante = data_adicional(inicio).isoformat()
+            por_arquivo.setdefault((servidor, instante), []).append(linha)
+        for identificador, linhas in por_arquivo.items():
+            # Uma cópia repetida do CSV não soma o consumo novamente.
+            agrupados[identificador] = normalizar_processos_adicionais(linhas)
+    return agrupados
+
+
+def normalizar_amostra_adicional(linha, empresa_pasta, servidor_pasta):
+    empresa = campo_adicional(linha, 'empresa_id')
+    if empresa is None and empresa_pasta.isdigit():
+        empresa = empresa_pasta
+    empresa = id_adicional(empresa)
+    servidor = id_adicional(campo_adicional(linha, 'servidor_id', 'id') or servidor_pasta)
+    if servidor != id_adicional(servidor_pasta):
+        raise ValueError('Servidor diferente do caminho.')
+    if empresa_pasta.isdigit() and empresa != id_adicional(empresa_pasta):
+        raise ValueError('Empresa diferente do caminho.')
+
+    inicio = data_adicional(campo_adicional(linha, 'inicio', 'INICIO_AMOSTRA'))
+    fim = data_adicional(campo_adicional(linha, 'fim', 'FIM_AMOSTRA'))
+    if not 0 < (fim - inicio).total_seconds() <= 300:
+        raise ValueError('Intervalo inválido ou maior que cinco minutos.')
+    amostra = {
+        'empresa_id': empresa, 'servidor_id': servidor,
+        'inicio': inicio.isoformat(), 'fim': fim.isoformat(),
+    }
+    aliases = {
+        'cpu': ('cpu', 'CPU', 'CPU_PCT'),
+        'ram': ('ram', 'RAM', 'RAM_PCT'),
+        'disco': ('disco', 'ARMAZENAMENTO', 'DISCO', 'DISCO_PCT'),
+        'rede': ('rede', 'REDE', 'REDE_PCT'),
+    }
+    for componente, nomes in aliases.items():
+        valor = numero_adicional(campo_adicional(linha, *nomes))
+        if valor is not None and not 0 <= valor <= 100:
+            raise ValueError(f'Percentual inválido: {componente}')
+        amostra[componente] = valor
+    for campo in ('rede_mbps', 'rede_capacidade_mbps', 'rede_capacidade_reserva'):
+        if campo in linha:
+            amostra[campo] = linha[campo]
+    processos = campo_adicional(linha, 'processos', 'PROCESSOS_CPU_RAM') or []
+    if isinstance(processos, str):
+        processos = json.loads(processos)
+    amostra['processos'] = normalizar_processos_adicionais(processos)
+    amostra['processos_completos'] = str(linha.get('processos_completos', '')).lower() in ('1', 'true', 'sim')
+    return amostra
+
+
+def gerar_dashboard_matheus(bucket, empresa_pasta):
+    # Reprocessa o histórico da empresa, sem apagar arquivos Bronze.
+    # IDs e limites do MySQL continuam sendo responsabilidade do backend.
+    separados = processos_por_intervalo(bucket, empresa_pasta)
+    por_empresa = {}
+    invalidas = 0
+    for chave in listar_arquivos_adicionais(bucket, f'bronze/hardware/{empresa_pasta}/'):
+        partes = chave.split('/')
+        if len(partes) != 5:
+            continue
+        for linha in ler_registros_adicionais(bucket, chave):
+            try:
+                amostra = normalizar_amostra_adicional(linha, empresa_pasta, partes[3])
+            except (ValueError, TypeError, KeyError) as erro:
+                invalidas += 1
+                print(f'Amostra não incluída na nova dashboard: {chave}: {erro}')
+                continue
+            identificador = (amostra['servidor_id'], amostra['inicio'])
+            if not amostra['processos'] and identificador in separados:
+                amostra['processos'] = separados[identificador]
+            por_empresa.setdefault(amostra['empresa_id'], {})[identificador] = amostra
+
+    if len(por_empresa) > 1:
+        raise ValueError('A pasta Bronze contém mais de um empresa_id. Verifique antes de gerar a Gold.')
+    gerado_em = datetime.now(timezone.utc).isoformat()
+    for empresa, unicas in por_empresa.items():
+        amostras = []
+        ultimo_fim = {}
+        for amostra in sorted(unicas.values(), key=lambda a: (int(a['servidor_id']), a['inicio'])):
+            servidor = amostra['servidor_id']
+            if servidor in ultimo_fim and amostra['inicio'] < ultimo_fim[servidor]:
+                continue
+            ultimo_fim[servidor] = amostra['fim']
+            amostras.append(amostra)
+        silver = {'versao': 2, 'empresa_id': empresa, 'gerado_em': gerado_em, 'amostras': amostras}
+        salvar_adicional(bucket, f'silver/empresas/{empresa}/normalizado.json', silver)
+        gold_amostras = []
+        for amostra in amostras:
+            resumo = {campo: amostra[campo] for campo in (
+                'servidor_id', 'inicio', 'fim', 'cpu', 'ram', 'disco', 'rede', 'processos_completos'
+            )}
+            processos = amostra['processos']
+            escolhidos = {}
+            for metrica in ('cpu', 'ram'):
+                medidos = [p for p in processos if p[metrica] is not None]
+                for processo in sorted(medidos, key=lambda p: p[metrica], reverse=True)[:15]:
+                    escolhidos[processo['nome']] = processo
+            resumo['processos'] = [escolhidos[nome] for nome in sorted(escolhidos)]
+            gold_amostras.append(resumo)
+        gold = {
+            'versao': 2, 'empresa_id': empresa, 'gerado_em': gerado_em,
+            'processos_por_amostra': 15,
+            'servidores': sorted({a['servidor_id'] for a in amostras}, key=int),
+            'amostras': gold_amostras,
+        }
+        salvar_adicional(bucket, f'gold/empresas/{empresa}/dashboard.json', gold)
+    print(f'Dashboard Matheus: {len(por_empresa)} empresa(s); {invalidas} amostra(s) inválida(s).')
+
+
+def gerar_gestao_problemas_ana(bucket, arquivo_origem, empresa_pasta):
+    # Mantém o recorte MENSAL do individual da Ana.
+    import re
+    from decimal import Decimal
+
+    parametro = (os.getenv('GESTAO_PROBLEMAS_PERIODO') or 'MENSAL').upper()
+    if parametro not in ('MENSAL', 'ANUAL'):
+        raise ValueError('GESTAO_PROBLEMAS_PERIODO deve ser MENSAL ou ANUAL.')
+    data_nome = re.search(r'captura_(\d{4}-\d{2}-\d{2})', arquivo_origem.rsplit('/', 1)[-1])
+    if not data_nome:
+        raise ValueError('Não foi possível identificar a data do CSV para a gestão de problemas.')
+    periodo = data_nome.group(1)[:7 if parametro == 'MENSAL' else 4]
+    servidores = {}
+    for chave in listar_arquivos_adicionais(bucket, f'bronze/hardware/{empresa_pasta}/', ('.csv',)):
+        if not chave.rsplit('/', 1)[-1].startswith('captura_' + periodo):
+            continue
+        for linha in ler_registros_adicionais(bucket, chave):
+            servidor = id_adicional(campo_adicional(linha, 'id', 'servidor_id') or chave.split('/')[3])
+            # Igual ao pandas do individual: números são números; vazios ficam null.
+            registro = {}
+            for campo, valor in linha.items():
+                if campo is None:
+                    continue
+                if valor in (None, ''):
+                    registro[campo] = None
+                elif campo in ('data_hora', 'inicio', 'fim', 'INICIO_AMOSTRA', 'FIM_AMOSTRA', 'id_mac'):
+                    registro[campo] = valor
+                else:
+                    try:
+                        registro[campo] = numero_adicional(valor)
+                    except (ValueError, TypeError):
+                        registro[campo] = valor
+            registro['arquivo_origem'] = chave
+            servidores.setdefault(servidor, []).append(registro)
+    timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    for servidor, registros in servidores.items():
+        registros.sort(key=lambda r: str(r.get('data_hora') or r.get('inicio') or ''))
+        salvar_adicional(bucket, f'silver/hardwares/{empresa_pasta}/{servidor}/dash-gestao-problemas_{timestamp}.json', registros)
+
+    # A Gold da Ana depende de metadados reais do MySQL, não de valores fictícios.
+    obrigatorias = ('DB_HOST', 'DB_USER', 'DB_NAME')
+    if not all(os.getenv(campo) for campo in obrigatorias):
+        print('Gold da Ana não gerada: configure DB_HOST, DB_USER, DB_PASSWORD, DB_NAME e DB_PORT.')
+        return
+    import pymysql
+    bd = pymysql.connect(
+        host=os.environ['DB_HOST'], user=os.environ['DB_USER'],
+        password=os.getenv('DB_PASSWORD') or '', database=os.environ['DB_NAME'],
+        port=int(os.getenv('DB_PORT') or os.getenv('PORT') or '3306'),
+        cursorclass=pymysql.cursors.DictCursor, connect_timeout=10,
+    )
+    try:
+        with bd.cursor() as cursor:
+            coluna_empresa = 'e.idEmpresa' if empresa_pasta.isdigit() else 'e.nome'
+            cursor.execute(
+                'SELECT equipa.idEquipamento AS id, equipa.nome AS nome, '
+                'equipa.valorDowntime AS valorDowntime, equipe.nome AS equipe '
+                'FROM empresa AS e JOIN equipamento AS equipa ON equipa.fkEmpresa = e.idEmpresa '
+                'JOIN usuario_equipamento AS ue ON ue.fkEquipamento = equipa.idEquipamento '
+                'JOIN equipe ON equipe.idEquipe = ue.fkEquipe '
+                f'WHERE {coluna_empresa} = %s '
+                'GROUP BY equipa.idEquipamento, equipa.nome, equipa.valorDowntime, equipe.nome '
+                'ORDER BY equipa.idEquipamento', (empresa_pasta,),
+            )
+            equipes = cursor.fetchall()
+        agrupados = {}
+        for linha in equipes:
+            valor = linha['valorDowntime']
+            servidor = agrupados.setdefault(linha['id'], {
+                'id': linha['id'], 'nome': linha['nome'],
+                'valorDowntime': float(valor) if isinstance(valor, Decimal) else valor,
+                'equipes': [],
+            })
+            if linha['equipe'] not in servidor['equipes']:
+                servidor['equipes'].append(linha['equipe'])
+        for identificador, servidor in agrupados.items():
+            salvar_adicional(bucket, f'gold/hardwares/{empresa_pasta}/{identificador}/dash-gestao-problemas_{timestamp}.json', servidor)
+    finally:
+        bd.close()
+
+
+def carregar_leitor_processos():
+    import importlib.util
+    caminho = os.path.join(os.path.dirname(__file__), 'script-leitura-processos.py')
+    spec = importlib.util.spec_from_file_location('leitor_processos_grupo', caminho)
+    modulo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modulo)
+    return modulo
+
+
+# ============================================================
 # ENTRADA DA AWS LAMBDA (gatilho: novo CSV na Bronze/hardware)
 # ============================================================
 
@@ -555,6 +854,15 @@ def lambda_handler(event, context):
     ignorados = 0
 
     for bucket, chave in arquivos:
+        if chave.startswith('bronze/processo/') and chave.lower().endswith('.csv'):
+            bucket = bucket or bucket_padrao
+            if not bucket:
+                raise ValueError('Bucket ausente no evento de processos.')
+            carregar_leitor_processos().processar_arquivo_processos_s3(bucket, chave)
+            gerar_dashboard_matheus(bucket, chave.split('/')[2])
+            processados.append({'bucket': bucket, 'key': chave})
+            continue
+
         if not chave.startswith(PREFIXO_BRONZE_HARDWARE) or not chave.lower().endswith('.csv'):
             print(f'Objeto ignorado fora do prefixo esperado: {chave}')
             ignorados += 1
