@@ -191,6 +191,34 @@ def processar_arquivo_processos_s3(bucket, arquivo):
         }),
     }
 
+
+# =========================================================
+# ENTRADA DA AWS LAMBDA (gatilho: novo CSV em Bronze/processo)
+# =========================================================
+
+def lambda_handler(event, context):
+    processados = []
+    ignorados = 0
+
+    for registro in event.get('Records') or []:
+        dados_s3 = registro.get('s3', {})
+        bucket = dados_s3.get('bucket', {}).get('name')
+        chave = dados_s3.get('object', {}).get('key', '')
+
+        if (
+            not bucket
+            or not chave.startswith('bronze/processo/')
+            or not chave.lower().endswith('.csv')
+        ):
+            ignorados += 1
+            continue
+
+        resultado = processar_arquivo_processos_s3(bucket, chave)
+        if resultado:
+            processados.append(json.loads(resultado['body']))
+
+    return {'processados': processados, 'ignorados': ignorados}
+
 if __name__ == '__main__':
     BUCKET = 'infrawatch-server-s3'
     ARQUIVO_PROCESSO_MAIS_RECENTE = buscar_ultimo_arquivo_processos_s3(
