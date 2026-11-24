@@ -1,9 +1,10 @@
 import psutil
 import csv
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import time
 import os
 import uuid
+import random
 import boto3
 import io
 import pymysql as mysql 
@@ -67,9 +68,11 @@ AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID") or os.getenv("AWS_ACESS_KEY_I
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY") or os.getenv("AWS_SECRET_KEY")
 AWS_REGION = os.getenv("AWS_REGION") or "us-east-1"
 QUANTIDADE_AMOSTRAS = int(os.getenv("QUANTIDADE_AMOSTRAS") or "15")
+QUANTIDADE_DADOS_SIMULADOS = int(os.getenv("QUANTIDADE_DADOS_SIMULADOS") or "100")
 INTERVALO_SEGUNDOS = float(os.getenv("INTERVALO_SEGUNDOS") or "5")
 CAMINHO_DISCO = os.getenv("CAMINHO_DISCO") or os.path.abspath(os.sep)
 CAPACIDADE_REDE_MBPS = float(os.getenv("CAPACIDADE_REDE_MBPS") or "100")
+HORARIOS_PICO_SERVIDOR = os.getenv("HORARIOS_PICO_SERVIDOR") or "09-12,14-17"
 BUCKET_BRONZE = (os.getenv("S3_BUCKET_BRONZE") or "").strip()
 PREFIXO_BRONZE = (os.getenv("S3_PREFIX_BRONZE") or "bronze/hardware/").strip("/")
 PASTA_LOCAL = Path(os.getenv("DIRETORIO_DADOS") or PASTA_SCRIPT / "dados")
@@ -77,6 +80,30 @@ CAMPOS_COMPONENTES = {"CPU": "cpu", "RAM": "ram", "ARMAZENAMENTO": "disco", "DIS
 PREFIXOS_REDE_IGNORADOS = ("lo", "docker", "veth", "br-", "virbr", "vmnet", "vboxnet")
 if QUANTIDADE_AMOSTRAS < 1 or INTERVALO_SEGUNDOS <= 0 or INTERVALO_SEGUNDOS > 290:
     raise ValueError("Use QUANTIDADE_AMOSTRAS >= 1 e INTERVALO_SEGUNDOS entre 0 e 290.")
+if QUANTIDADE_DADOS_SIMULADOS < 0:
+    raise ValueError("Use QUANTIDADE_DADOS_SIMULADOS >= 0.")
+
+
+def carregar_horarios_pico(valor):
+    """Converte horários como '09-12,14-17' em intervalos de hora."""
+    horarios = []
+    for intervalo in valor.split(","):
+        try:
+            inicio, fim = (int(parte.strip()) for parte in intervalo.split("-", 1))
+        except (TypeError, ValueError):
+            raise ValueError(
+                "HORARIOS_PICO_SERVIDOR deve usar intervalos como '09-12,14-17'."
+            ) from None
+        if not (0 <= inicio < fim <= 24):
+            raise ValueError(
+                "Cada intervalo em HORARIOS_PICO_SERVIDOR deve ter início menor "
+                "que o fim, entre 0 e 24."
+            )
+        horarios.append((inicio, fim))
+    return horarios
+
+
+JANELAS_PICO_SERVIDOR = carregar_horarios_pico(HORARIOS_PICO_SERVIDOR)
 
 # Configurações adicionais utilizadas na captura individual do Gustavo.
 import socket
@@ -852,6 +879,130 @@ def complementar_amostra(amostra):
         )
 
 
+def nivel_estresse_horario(instante):
+    """Retorna uma carga maior em horários de pico de dias úteis."""
+    local = instante.astimezone(FUSO)
+    if local.weekday() < 5 and any(
+        inicio <= local.hour < fim for inicio, fim in JANELAS_PICO_SERVIDOR
+    ):
+        return random.uniform(0.72, 1.0)
+    if local.weekday() < 5 and EXPEDIENTE_INICIO <= local.hour < EXPEDIENTE_FIM:
+        return random.uniform(0.35, 0.62)
+    return random.uniform(0.08, 0.32)
+
+
+def valor_percentual_simulado(campo, valor_real, estresse):
+    """Gera percentuais dentro da mesma escala das métricas capturadas."""
+    padroes = {"cpu": 20.0, "ram": 35.0, "disco": 50.0, "rede": 10.0}
+    base = valor_real if isinstance(valor_real, (int, float)) else padroes[campo]
+
+    if campo == "disco":
+        # A ocupação do disco representa espaço usado, não atividade instantânea.
+        valor = base + random.uniform(-0.15, 0.2) + estresse * 0.1
+    elif campo == "ram":
+        valor = base + min(35.0, max(8.0, 90.0 - base)) * estresse
+        valor += random.uniform(-3.0, 3.0)
+    elif campo == "cpu":
+        valor = base + max(18.0, 94.0 - base) * estresse
+        valor += random.uniform(-5.0, 5.0)
+    else:  # rede
+        valor = base + max(25.0, 96.0 - base) * estresse
+        valor += random.uniform(-6.0, 6.0)
+
+    return round(min(100.0, max(0.0, valor)), 2)
+
+
+def criar_amostra_simulada(inicio, amostra_real_recente):
+    """Monta uma amostra com os componentes ativos e metadados do CSV atual."""
+    local = inicio.astimezone(FUSO)
+    estresse = nivel_estresse_horario(inicio)
+    amostra = {
+        "versao": 2,
+        "empresa_id": str(equipamento_atual["fkEmpresa"]),
+        "servidor_id": str(equipamento_atual["idEquipamento"]),
+        "id_mac": str(id_mac),
+        "inicio": inicio.isoformat(),
+        "fim": (inicio + timedelta(seconds=INTERVALO_SEGUNDOS)).isoformat(),
+        "cpu": None,
+        "ram": None,
+        "disco": None,
+        "rede": None,
+        "rede_mbps": None,
+        "rede_capacidade_mbps": None,
+        "rede_capacidade_reserva": False,
+        "processos": [],
+        "processos_completos": False,
+    }
+
+    for campo in componentes_dashboard:
+        valor_real = (amostra_real_recente or {}).get(campo)
+        amostra[campo] = valor_percentual_simulado(campo, valor_real, estresse)
+
+    if "rede" in componentes_dashboard:
+        capacidade = (amostra_real_recente or {}).get("rede_capacidade_mbps")
+        if not isinstance(capacidade, (int, float)) or capacidade <= 0:
+            capacidade = CAPACIDADE_REDE_MBPS
+        amostra["rede_capacidade_mbps"] = round(float(capacidade), 2)
+        amostra["rede_mbps"] = round(
+            amostra["rede"] * amostra["rede_capacidade_mbps"] / 100, 3
+        )
+
+    amostra["inicio_local"] = local.isoformat(timespec="seconds")
+    amostra["dia_semana"] = local.weekday()
+    amostra["hora"] = local.hour
+    amostra["dentro_expediente"] = int(
+        local.weekday() < 5
+        and EXPEDIENTE_INICIO <= local.hour < EXPEDIENTE_FIM
+    )
+    boot = psutil.boot_time()
+    amostra["boot_time"] = datetime.fromtimestamp(
+        boot, timezone.utc
+    ).isoformat(timespec="seconds")
+    amostra["uptime_s"] = max(0, int(inicio.timestamp() - boot))
+
+    status_geral = ""
+    alertas = []
+    for campo in campos_status:
+        atencao, critico = limites_alerta.get(campo, (None, None))
+        amostra[f"{campo}_limite_atencao"] = atencao
+        amostra[f"{campo}_limite_critico"] = critico
+        status = classificar_adicional(amostra[campo], atencao, critico)
+        amostra[f"{campo}_status"] = status
+        if ORDEM_STATUS[status] > ORDEM_STATUS[status_geral]:
+            status_geral = status
+        if status in ("ATENCAO", "CRITICO"):
+            alertas.append(f"{campo}:{status}")
+
+    latencia_ativa = LATENCIA_ATIVA and "rede" in componentes_dashboard
+    latencia = (
+        round(15 + estresse * 150 + random.uniform(-8, 12), 2)
+        if latencia_ativa else None
+    )
+    amostra["latencia_rede_ms"] = latencia
+    amostra["latencia_limite_atencao"] = (
+        LATENCIA_LIMITE_ATENCAO if latencia_ativa else None
+    )
+    amostra["latencia_limite_critico"] = (
+        LATENCIA_LIMITE_CRITICO if latencia_ativa else None
+    )
+    status_latencia = ""
+    if latencia_ativa:
+        status_latencia = classificar_adicional(
+            latencia, LATENCIA_LIMITE_ATENCAO, LATENCIA_LIMITE_CRITICO
+        )
+        if ORDEM_STATUS[status_latencia] > ORDEM_STATUS[status_geral]:
+            status_geral = status_latencia
+        if status_latencia in ("ATENCAO", "CRITICO"):
+            alertas.append(f"latencia:{status_latencia}")
+    amostra["latencia_status"] = status_latencia
+    amostra["status_geral"] = status_geral
+    amostra["componentes_em_alerta"] = "|".join(alertas)
+    for campo in ("cpu", "ram", "disco", "rede"):
+        amostra[f"processo_lider_{campo}"] = ""
+
+    return amostra
+
+
 def capturar_amostra():
     # Uma amostra = um intervalo de INTERVALO_SEGUNDOS segundos
     placas = interfaces_de_rede() if "rede" in componentes_dashboard else {}
@@ -911,6 +1062,7 @@ def capturar_amostra():
 # ============================================================
 # 10. EXECUÇÃO DA CAPTURA CSV E TESTE HTTP (15 AMOSTRAS)
 # ============================================================
+ultima_amostra_real = None
 with Progress(
     TextColumn(f"[bold {AZUL_CLARO}]Capturando[/bold {AZUL_CLARO}]"),
     BarColumn(complete_style=AZUL_CLARO, finished_style=AZUL_CLARO),
@@ -929,6 +1081,7 @@ with Progress(
 
         # Capturo uma vez e reutilizo quando o código no banco estiver NULL.
         amostra_dashboard = capturar_amostra()
+        ultima_amostra_real = amostra_dashboard
 
         valores_capturados = []
 
@@ -944,8 +1097,7 @@ with Progress(
                 val = amostra_dashboard.get(campo)
             else:
                 val = eval(componente['codigo'])
-
-        valores_capturados.append(val)
+            valores_capturados.append(val)
         data_hora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         valores_dashboard = [amostra_dashboard["inicio"], amostra_dashboard["fim"]]
         valores_dashboard.extend(amostra_dashboard[campo] for campo in campos_metricas_dashboard)
@@ -1010,7 +1162,81 @@ with Progress(
 
 
 # ============================================================
-# 11. ENVIO DOS ARQUIVOS CSV PARA O S3 (BRONZE)
+# 11. GERAÇÃO DE MAIS 100 AMOSTRAS SINTÉTICAS
+# ============================================================
+if QUANTIDADE_DADOS_SIMULADOS:
+    if ultima_amostra_real:
+        primeiro_inicio_simulado = datetime.fromisoformat(
+            ultima_amostra_real["fim"]
+        ) + timedelta(seconds=INTERVALO_SEGUNDOS)
+    else:
+        primeiro_inicio_simulado = datetime.now(timezone.utc)
+
+    with Progress(
+        TextColumn(f"[bold {AZUL_CLARO}]Gerando amostras[/bold {AZUL_CLARO}]"),
+        BarColumn(complete_style=AZUL_CLARO, finished_style=AZUL_CLARO),
+        TextColumn("[bold white]{task.percentage:>3.0f}%[/bold white]"),
+        TimeElapsedColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("simulacao", total=QUANTIDADE_DADOS_SIMULADOS)
+        for indice in range(QUANTIDADE_DADOS_SIMULADOS):
+            inicio_simulado = primeiro_inicio_simulado + timedelta(
+                seconds=indice * INTERVALO_SEGUNDOS
+            )
+
+            # Mede o endpoint em cada amostra, alternando os níveis usados na
+            # captura real. A última coluna retornada é a latência máxima.
+            nivel_concorrencia = NIVEIS_CONCORRENCIA[
+                indice % len(NIVEIS_CONCORRENCIA)
+            ]
+            metricas_requisicoes = capturar_requisicoes_http(nivel_concorrencia)
+            latencia_max_ms = metricas_requisicoes.pop()
+
+            amostra_dashboard = criar_amostra_simulada(
+                inicio_simulado, ultima_amostra_real
+            )
+            data_hora = inicio_simulado.astimezone(FUSO).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+
+            valores_capturados = []
+            for componente in componentes_csv:
+                campo = CAMPOS_COMPONENTES.get(componente["tipo"].upper())
+                valores_capturados.append(
+                    amostra_dashboard.get(campo) if campo else None
+                )
+
+            valores_dashboard = [
+                amostra_dashboard["inicio"], amostra_dashboard["fim"]
+            ]
+            valores_dashboard.extend(
+                amostra_dashboard[campo] for campo in campos_metricas_dashboard
+            )
+            valores_dashboard.extend(
+                amostra_dashboard.get(campo) for campo in campos_rede_detalhados
+            )
+            valores_dashboard.extend([
+                str(equipamento_atual["fkEmpresa"]),
+                str(equipamento_atual["idEquipamento"]),
+                str(id_mac),
+            ])
+            amostra_dashboard["LATENCIA_MAX_MS"] = latencia_max_ms
+            valores_dashboard.extend(
+                amostra_dashboard.get(campo) for campo in colunas_adicionais
+            )
+
+            writer.writerow(
+                [equipamento_atual["idEquipamento"], data_hora]
+                + valores_capturados
+                + metricas_requisicoes
+                + valores_dashboard
+            )
+            progress.advance(task)
+
+
+# ============================================================
+# 12. ENVIO DOS ARQUIVOS CSV PARA O S3 (BRONZE)
 # ============================================================
 timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
@@ -1065,8 +1291,8 @@ console.print(
 
 
 # ============================================================
-# 12. ARQUIVOS CSV SEPARADOS DE HARDWARE E PROCESSOS
+# 13. ARQUIVOS CSV SEPARADOS DE HARDWARE E PROCESSOS
 # ============================================================
 console.print(f"[dim white]CSV de hardware salvo localmente em: {caminho_csv_local}[/dim white]")
 
-console.print(Align.center("[dim wgit hite]Obrigada por escolher a InfraWatch![/dim white]"))
+console.print(Align.center("[dim white]Obrigada por escolher a InfraWatch![/dim white]"))
