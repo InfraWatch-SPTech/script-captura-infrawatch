@@ -131,24 +131,6 @@ CREATE TABLE equipe (
     descricao VARCHAR(200)
 );
 
-CREATE TABLE usuario_equipe (
-	fkUsuario INT NOT NULL,
-    fkEquipe INT NOT NULL,
-
-    CONSTRAINT pk_usuario_equipe
-		PRIMARY KEY (fkUsuario, fkEquipe),
-
-    CONSTRAINT fk_ue_usuario
-		FOREIGN KEY (fkUsuario)
-        REFERENCES usuario(idUsuario)
-        ON DELETE CASCADE,
-
-    CONSTRAINT fk_ue_equipe
-		FOREIGN KEY (fkEquipe)
-        REFERENCES equipe(idEquipe)
-        ON DELETE CASCADE
-);
-
 CREATE TABLE usuario_equipamento (
 	fkUsuario INT,
     fkEquipamento INT,
@@ -249,16 +231,6 @@ INSERT INTO equipe (nome, descricao) VALUES
 ('Equipe de Rede', 'Monitora switches e conectividade'),
 ('Equipe de Alertas', 'Trata e configura os alertas'),
 ('Equipe de Auditoria', 'Acompanha relatorios e auditoria');
-
-INSERT INTO usuario_equipe (fkUsuario, fkEquipe) VALUES
--- Root (nível administrativo): participa de todas as equipes
-(1, 1), (1, 2), (1, 3), (1, 4),
--- Mariana (Administradora): cuida de duas equipes
-(2, 1), (2, 2),
--- Usuarios comuns: cada um em apenas UMA equipe
-(3, 1),
-(4, 3),
-(5, 4);
 
 -- =============================================================
 -- 4. SEEDS DE PERMISSOES ESPECIFICAS
@@ -457,6 +429,42 @@ VALUES
 -- =============================================================
 -- 10. USUÁRIOS PARA APLICAÇÕES
 -- =============================================================
+
+-- PARA DESCOBRIR EQUIPE DOS SERVIDORES
+SELECT idEmpresa, nome FROM empresa WHERE nome = 'TechShield LTDA';
+SELECT
+	equipa.idEquipamento,
+	equipa.nome,
+    equipa.valorDowntime,
+    equipe.nome
+FROM empresa AS e
+JOIN equipamento AS equipa
+	ON equipa.fkEmpresa = e.idEmpresa
+JOIN usuario_equipamento AS ue
+	ON ue.fkEquipamento = equipa.idEquipamento
+JOIN equipe
+	ON equipe.idEquipe = ue.fkEquipe
+WHERE e.idEmpresa = 2
+GROUP BY equipa.idEquipamento, equipe.nome;
+
+
+-- PARA DESCOBRIR PARÂMETRO SERVIDORES
+SELECT
+	equipa.idEquipamento AS id,
+	equipa.nome AS nome,
+    equipa.valorDowntime AS valorDowntime,
+    p.limite_atencao AS atencao,
+    p.limite_critico AS critico,
+    c.nome AS componente
+FROM empresa AS e
+JOIN equipamento AS equipa
+	ON equipa.fkEmpresa = e.idEmpresa
+JOIN parametro_alerta AS p
+	ON p.fkEquipamento = equipa.idEquipamento
+JOIN componente AS c
+	ON p.fkComponente = c.idComponente
+WHERE e.idEmpresa = 2;
+
 
 -- SCRIPT JAVA JIRA USER --
 DROP USER IF EXISTS 'infra_watch_java_jira'@'%';

@@ -1,26 +1,40 @@
-import psutil
-import csv
-import random                                   # NOVO: stdlib (simulação)
-from datetime import datetime, timedelta        # NOVO: timedelta (stdlib)
-import time
-import os
-import uuid
-import boto3
-import io
-import pymysql as mysql
-import sys
-from dotenv import load_dotenv
+"""
+simulador-captura.py
 
-# Rich para interface no terminal
+Baseado em ana-captura.py.
+Captura inicial via eval() -> simula 5 servidores da mesma empresa
+durante 1 semana -> envia os CSVs simulados para a camada Bronze do S3.
+
+A simulação em si usa apenas bibliotecas da stdlib.
+"""
+
+# ============================================================
+# IMPORTS
+# ============================================================
+# Stdlib usada pela SIMULAÇÃO
+import csv
+import io
+import os
+import sys
+import uuid
+import random
+import time
+from datetime import datetime, timedelta
+
+# Já presentes no fluxo original: banco, S3, terminal e eval()
+import psutil  # apenas para o eval() resolver o código vindo do banco
+import boto3
+import pymysql as mysql
+from dotenv import load_dotenv
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn
-from rich.prompt import Prompt, Confirm
+from rich.prompt import Prompt
 from rich.align import Align
 from rich import box
 
 # ============================================================
-# CONFIGURAÇÃO VISUAL
+# CONFIGURAÇÃO VISUAL (igual ao ana-captura.py)
 # ============================================================
 console = Console()
 AZUL_ESCURO = "#0B1F3A"
@@ -36,6 +50,7 @@ BANNER = f"""
 [bold {AZUL_CLARO}]  ╚═══╝    ╚═══╝[/bold {AZUL_CLARO}]
 """
 
+
 def mostrar_banner():
     console.print(
         Panel(
@@ -43,33 +58,63 @@ def mostrar_banner():
             border_style=AZUL_CLARO,
             style=f"on {PRETO}",
             padding=(1, 4),
-            box=box.ROUNDED
+            box=box.ROUNDED,
         )
     )
+
 
 def limpar_tela():
     console.clear()
 
 
 # ============================================================
-# CONFIGURAÇÃO DA SIMULAÇÃO (DADOS FICTÍCIOS)
+# PARÂMETROS DA SIMULAÇÃO (somente stdlib)
 # ============================================================
-QTD_SERVIDORES_SIMULADOS = 5
+QTD_SERVIDORES = 5
 DIAS_SIMULADOS = 7
-INTERVALO_MINUTOS = 60          # 1 amostra/hora => 168 amostras por servidor
-LIMIAR_CRITICO = 95.0
-DESVIO_PADRAO = 3.0
-SEMENTE_SIMULACAO = 2026
+INTERVALO_MINUTOS = 60          # 1 amostra/hora => 168 amostras + a atual
+AMOSTRAS_BASE = 5               # amostras reais usadas como semente
+LIMIAR_CRITICO = 95.0           # apenas rótulo dos picos gerados (95,5% a 99,7%)
+DESVIO_PADRAO = 2.5
+SEMENTE = 2026
+FATORES_SERVIDOR = [1.10, 0.95, 1.05, 0.88, 1.00]
 
+# Atualizado com a quantidade real de servidores após a consulta ao banco.
+TOTAL_SERVIDORES_SIMULACAO = QTD_SERVIDORES
+
+# Limites usados quando parametro_alerta não trouxer regra para a métrica.
+# São os mesmos gravados em garantir_parametros_padrao() e no ana-captura.py.
+LIMITE_ATENCAO_PADRAO = 60.0
+LIMITE_CRITICO_PADRAO = 90.0
+
+CAMPOS_COMPONENTES = {
+    "CPU": "CPU", "RAM": "RAM", "ARMAZENAMENTO": "ARMAZENAMENTO",
+    "DISCO": "ARMAZENAMENTO", "REDE": "REDE",
+}
+
+# Mesmo mapeamento de ana-teste-leitura.py: nomeMetrica -> colunas do CSV.
+ALIAS_METRICAS = {
+    "USO_CPU": {"CPU", "USO_CPU", "USE_CPU", "PROCESSADOR"},
+    "USE_CPU": {"CPU", "USO_CPU", "USE_CPU", "PROCESSADOR"},
+    "USO_RAM": {"RAM", "USO_RAM", "USE_RAM", "MEMORIA", "MEMORIA_RAM"},
+    "USE_RAM": {"RAM", "USO_RAM", "USE_RAM", "MEMORIA", "MEMORIA_RAM"},
+    "USO_DISCO": {"DISCO", "USO_DISCO", "USE_DISCO", "ARMAZENAMENTO"},
+    "USE_DISCO": {"DISCO", "USO_DISCO", "USE_DISCO", "ARMAZENAMENTO"},
+    "USO_REDE": {"REDE", "USO_REDE", "USE_REDE", "REDE_PERCENTUAL"},
+    "USE_REDE": {"REDE", "USO_REDE", "USE_REDE", "REDE_PERCENTUAL"},
+    "TEMPERATURA_CPU": {"TEMPERATURA", "TEMPERATURA_CPU", "CPU_TEMPERATURA"},
+    "PROCESSOS_ATIVOS": {"PROCESSOS_ATIVOS", "PROCESSOS", "QTD_PROCESSOS"},
+}
 
 # ============================================================
-# 0. CARREGANDO VARIÁVEIS DE AMBIENTE
+# 0. AMBIENTE
 # ============================================================
 load_dotenv()
 
 AWS_ACESS_KEY_ID = os.getenv("AWS_ACESS_KEY_ID") or None
 AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY") or None
 AWS_SESSION_TOKEN = os.getenv("AWS_SESSION_TOKEN") or None
+AWS_REGION = os.getenv("AWS_REGION") or "us-east-1"
 
 DB_HOST = os.getenv("DB_HOST")
 DB_USER = os.getenv("DB_USER")
@@ -77,28 +122,30 @@ DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_NAME = os.getenv("DB_NAME")
 PORT = int(os.getenv("PORT"))
 
-
-# ============================================================
-# 1. CONEXÃO COM O S3
-# ============================================================
 BUCKET = "data-lake-infrawatch"
 
+# ============================================================
+# 1. S3
+# ============================================================
 s3 = boto3.client(
     "s3",
+    region_name=AWS_REGION,
     aws_access_key_id=AWS_ACESS_KEY_ID,
     aws_secret_access_key=AWS_SECRET_KEY,
-    aws_session_token=AWS_SESSION_TOKEN
+    aws_session_token=AWS_SESSION_TOKEN,
 )
 
 id_mac = uuid.getnode()
 
-
 # ============================================================
-# 2. CONEXÃO COM O BANCO DE DADOS (InfraWatch)
+# 2. BANCO DE DADOS
 # ============================================================
 console.print(
-    Panel("[bold white]Conectando ao banco de dados InfraWatch...[/bold white]",
-          border_style=AZUL_CLARO, style=f"on {AZUL_ESCURO}")
+    Panel(
+        "[bold white]Conectando ao banco de dados InfraWatch...[/bold white]",
+        border_style=AZUL_CLARO,
+        style=f"on {AZUL_ESCURO}",
+    )
 )
 
 bd = mysql.connect(
@@ -107,9 +154,8 @@ bd = mysql.connect(
     password=DB_PASSWORD,
     database=DB_NAME,
     port=PORT,
-    cursorclass=mysql.cursors.DictCursor
+    cursorclass=mysql.cursors.DictCursor,
 )
-
 cursor = bd.cursor()
 
 cursor.execute("SELECT idEquipamento, nome, idMac, fkEmpresa FROM equipamento;")
@@ -118,15 +164,8 @@ equipamentos = cursor.fetchall()
 cursor.execute("SELECT idComponente, nome, tipo, medida, codigo FROM componente;")
 componentes = cursor.fetchall()
 
-cursor.execute("SELECT nome, email, senha, fkEmpresa FROM usuario;")
-funcionarios = cursor.fetchall()
-
-cursor.execute("SELECT idEmpresa, nome FROM empresa;")
-empresas = cursor.fetchall()
-
-
 # ============================================================
-# 3. VALIDAÇÃO DO USUÁRIO
+# 3. LOGIN
 # ============================================================
 limpar_tela()
 mostrar_banner()
@@ -135,7 +174,7 @@ console.print(
     Panel(
         Align.center(
             "[bold white]Bem-vindo à InfraWatch![/bold white]\n"
-            "[dim white]Insira suas credenciais para continuar.[/dim white] "
+            "[dim white]Insira suas credenciais para continuar.[/dim white]"
         ),
         border_style=AZUL_CLARO,
         style=f"on {PRETO}",
@@ -149,8 +188,7 @@ ipt_senha = Prompt.ask("[bold white]Senha[/bold white]", password=True)
 
 cursor.execute(
     """
-    SELECT u.idUsuario, u.nome, u.email, u.senha, u.fkEmpresa, e.nome AS
-    nomeEmpresa
+    SELECT u.idUsuario, u.nome, u.email, u.senha, u.fkEmpresa, e.nome AS nomeEmpresa
     FROM usuario u
     JOIN empresa e ON u.fkEmpresa = e.idEmpresa
     WHERE (u.email = %s OR u.nome = %s) AND u.senha = %s;
@@ -166,7 +204,7 @@ if not usuario_logado:
             "[bold white]Você não pode acessar nosso serviço (Acesso Negado).[/bold white]",
             title="[bold #38BDF8]ACESSO NEGADO[/bold #38BDF8]",
             border_style=AZUL_CLARO,
-            style=f"on {PRETO}"
+            style=f"on {PRETO}",
         )
     )
     cursor.close()
@@ -175,22 +213,20 @@ if not usuario_logado:
 
 fk_empresa = usuario_logado["fkEmpresa"]
 nome_empresa = usuario_logado["nomeEmpresa"]
-nome_usuario = usuario_logado["nome"]
-
 
 # ============================================================
-# 4. VALIDAÇÃO OU CADASTRO DO SERVIDOR
+# 4. VALIDAÇÃO / CADASTRO DO SERVIDOR ATUAL
 # ============================================================
 cadastrar = True
 
-for i in range(len(equipamentos)):
-    if equipamentos[i]['idMac'] == str(id_mac):
+for equipamento in equipamentos:
+    if equipamento["idMac"] == str(id_mac):
         cadastrar = False
         equipamento_atual = {
-            "idEquipamento": equipamentos[i]['idEquipamento'],
-            "nome": equipamentos[i]['nome'],
+            "idEquipamento": equipamento["idEquipamento"],
+            "nome": equipamento["nome"],
             "idMac": id_mac,
-            "fkEmpresa": equipamentos[i]['fkEmpresa']
+            "fkEmpresa": equipamento["fkEmpresa"],
         }
 
 if cadastrar:
@@ -206,59 +242,74 @@ if cadastrar:
         INSERT INTO equipamento (nome, tipo, status, idMac, fkEmpresa)
         VALUES (%s, 'Servidor', 'Online', %s, %s);
         """,
-        (nome_novo_servidor, id_mac, fk_empresa),
+        (nome_novo_servidor, str(id_mac), fk_empresa),
     )
     bd.commit()
 
-    id_novo_eq = cursor.lastrowid
     equipamento_atual = {
-        "idEquipamento": id_novo_eq,
+        "idEquipamento": cursor.lastrowid,
         "nome": nome_novo_servidor,
         "idMac": id_mac,
         "fkEmpresa": fk_empresa,
     }
-
     console.print(
-        f"[bold green]Novo servidor '{nome_novo_servidor}' cadastrado com sucesso! (ID: {id_novo_eq})[/bold green]\n"
+        f"[bold green]Novo servidor '{nome_novo_servidor}' cadastrado "
+        f"(ID: {equipamento_atual['idEquipamento']})[/bold green]\n"
     )
 
-    for metrica, id_comp in (('USE_CPU', 1), ('USE_RAM', 2), ('USE_DISCO', 6)):
+
+def garantir_parametros_padrao(id_equipamento):
+    """Grava CPU, RAM e PROCESSOS como default, como no ana-captura.py.
+
+    O INSERT IGNORE também recupera equipamentos que já existem no banco mas
+    ficaram sem parâmetros de alerta (por exemplo, cadastrados por uma execução
+    anterior deste simulador).
+    """
+    padroes = (
+        ("USE_CPU", 1),
+        ("USE_RAM", 2),
+        ("PROCESSOS_ATIVOS", 6),
+    )
+    for nome_metrica, id_componente in padroes:
         cursor.execute(
             """
-            INSERT INTO parametro_alerta
-            (nomeMetrica, limite_atencao, limite_critico, unidade, ativo, fkEquipamento, fkComponente)
-            VALUES (%s, 60.0, 90.0, '%%', 1, %s, %s)
+            INSERT IGNORE INTO parametro_alerta
+            (nomeMetrica, limite_atencao, limite_critico, unidade, ativo,
+             fkEquipamento, fkComponente)
+            VALUES (%s, 60.0, 90.0, '%%', 1, %s, %s);
             """,
-            (metrica, equipamento_atual["idEquipamento"], id_comp),
+            (nome_metrica, id_equipamento, id_componente),
         )
-        bd.commit()
-        console.print(f"[bold green]Métrica {metrica} salva com sucesso![/bold green]\n")
+    bd.commit()
 
 
+garantir_parametros_padrao(equipamento_atual["idEquipamento"])
+
 # ============================================================
-# 5. BUSCA MAPEAMENTO DE EQUIPAMENTO E COMPONENTES
+# 5. COMPONENTES ATIVOS DO EQUIPAMENTO
 # ============================================================
-cursor.execute("SELECT DISTINCT fkComponente, fkEquipamento FROM parametro_alerta WHERE ativo = 1;")
+cursor.execute(
+    "SELECT DISTINCT fkComponente, fkEquipamento FROM parametro_alerta WHERE ativo = 1;"
+)
 equip_comp = cursor.fetchall()
 
 cursor.execute(
     """
-    SELECT DISTINCT c.idComponente, c.nome, c.tipo
+    SELECT DISTINCT c.idComponente, c.nome, c.tipo, c.medida, c.codigo
     FROM componente c
     JOIN parametro_alerta pa ON c.idComponente = pa.fkComponente
     WHERE pa.fkEquipamento = %s AND pa.ativo = 1;
     """,
     (equipamento_atual["idEquipamento"],),
 )
-componentes_selecionados_objs = cursor.fetchall()
+componentes_selecionados = cursor.fetchall()
 
-if not componentes_selecionados_objs:
-    console.print("[bold yellow]Aviso: Nenhum componente ativo configurado. Carregando lista geral...[/bold yellow]")
-    cursor.execute("SELECT idComponente, nome, tipo FROM componente;")
-    componentes_selecionados_objs = cursor.fetchall()
+if not componentes_selecionados:
+    cursor.execute("SELECT idComponente, nome, tipo, medida, codigo FROM componente;")
+    componentes_selecionados = cursor.fetchall()
 
-if not componentes_selecionados_objs:
-    console.print("[bold yellow]Nenhum componente selecionado para monitorar. Encerrando.[/bold yellow]")
+if not componentes_selecionados:
+    console.print("[bold yellow]Nenhum componente para monitorar. Encerrando.[/bold yellow]")
     cursor.close()
     bd.close()
     sys.exit(0)
@@ -266,359 +317,451 @@ if not componentes_selecionados_objs:
 cursor.close()
 bd.close()
 
+capturar_comp = [
+    ec["fkComponente"]
+    for ec in equip_comp
+    if ec["fkEquipamento"] == equipamento_atual["idEquipamento"]
+]
+
 limpar_tela()
 mostrar_banner()
+
+# ============================================================
+# 6. CAPTURA INICIAL — SEM CÓDIGO psutil ESCRITO AQUI
+#    Os valores vêm exclusivamente de eval(codigo_do_componente).
+# ============================================================
+def capturar_linha_base():
+    """Retorna {metrica: valor} usando somente o eval() dos componentes."""
+    linha = {}
+    for comp_id in capturar_comp:
+        if comp_id == 6:          # PROCESSOS não é métrica numérica
+            continue
+        for componente in componentes:
+            if componente["idComponente"] != comp_id:
+                continue
+
+            codigo = (componente.get("codigo") or "").strip()
+            if not codigo:
+                continue
+
+            campo = CAMPOS_COMPONENTES.get(
+                str(componente["tipo"]).upper(),
+                str(componente["tipo"]).upper(),
+            )
+            if campo in linha:
+                continue
+
+            try:
+                valor = float(eval(codigo))  # psutil fica dentro do código do banco
+            except Exception:
+                continue
+
+            linha[campo] = round(valor, 2)
+    return linha
+
 
 console.print(
     Panel(
-        f"[bold white]Olá, {usuario_logado['nome']}![/bold white]\n\n"
-        "[dim white]As informações da sua máquina serão coletadas automaticamente.[/dim white]",
-        title=f"[bold {AZUL_CLARO}]InfraWatch[/bold {AZUL_CLARO}]",
+        "[bold white]Coletando captura inicial (semente da simulação)...[/bold white]",
+        title=f"[bold {AZUL_CLARO}]CAPTURA[/bold {AZUL_CLARO}]",
         border_style=AZUL_CLARO,
-        style=f"on {AZUL_ESCURO}"
+        style=f"on {AZUL_ESCURO}",
     )
 )
 
-console.print()
-continuar = Confirm.ask("[bold white]Deseja continuar?[/bold white]", default=True)
+primeira = capturar_linha_base()
+nomes_metricas = list(primeira.keys())
 
-if not continuar:
+if not nomes_metricas:
     console.print(
-        Panel("[bold white]Fechando script...[/bold white]", border_style=AZUL_CLARO, style=f"on {PRETO}")
+        "[bold red]Nenhum componente com código eval() válido. Encerrando.[/bold red]\n"
+        f"[dim white]Equipamento: {equipamento_atual['idEquipamento']} | "
+        f"componentes ativos: {capturar_comp} | "
+        f"códigos: "
+        + ", ".join(
+            f"{c['tipo']}={c.get('codigo')!r}" for c in componentes
+        )
+        + "[/dim white]"
     )
-    os._exit(0)
+    sys.exit(1)
 
+cabecalho_csv = ["id", "data_hora"] + nomes_metricas
+linhas_base = [
+    [equipamento_atual["idEquipamento"],
+     datetime.now().strftime("%Y-%m-%d %H:%M:%S")]
+    + [primeira[nome] for nome in nomes_metricas]
+]
 
-# ============================================================
-# 6. IDENTIFICA COMPONENTES DO EQUIPAMENTO ATUAL
-# ============================================================
-capturar_comp = []
-for ec in equip_comp:
-    if ec['fkEquipamento'] == equipamento_atual['idEquipamento']:
-        capturar_comp.append(ec['fkComponente'])
-
-
-# ============================================================
-# 7. MONTAGEM DO CSV EM MEMÓRIA
-# ============================================================
-limpar_tela()
-mostrar_banner()
-
-console.print(
-    Panel("[bold white]Preparando captura dos dados...[/bold white]",
-          title=f"[bold {AZUL_CLARO}]CAPTURA[/bold {AZUL_CLARO}]",
-          border_style=AZUL_CLARO, style=f"on {AZUL_ESCURO}")
-)
-console.print()
-
-titulo_executados = "id;data_hora"
-
-for comp_id in capturar_comp:
-    for c in componentes:
-        if comp_id == 6:
-            continue
-        elif comp_id == c['idComponente']:
-            titulo_executados += f";{c['tipo']}"
-
-cabecalho_csv = titulo_executados.split(';')
-
-csv_buffer = io.StringIO()
-writer = csv.writer(csv_buffer, delimiter=';')
-writer.writerow(cabecalho_csv)
-
-
-# ============================================================
-# 8. FUNÇÃO PARA CAPTURAR PROCESSOS E GERAR .CSV
-# ============================================================
-enviar_processos = False
-
-def capturar_processos():
-    infos_processos = []
-    for proc in psutil.process_iter(['pid', 'name']):
-        try:
-            p = psutil.Process(proc.info['pid'])
-            proc_ram = round(p.memory_percent(), 2)
-            proc_path = p.exe() if p.exe() else 'N/A'
-            proc_tam_mb = 0.0
-            if proc_path != 'N/A' and os.path.exists(proc_path):
-                proc_tam_bytes = os.path.getsize(proc_path)
-                proc_tam_mb = round(proc_tam_bytes / (1024 * 1024), 2)
-
-            infos_processos.append([
-                proc.info['pid'],
-                proc.info['name'],
-                proc_ram,
-                proc_tam_mb,
-                proc_path
-            ])
-        except Exception:
-            pass
-
-    csv_processos = io.StringIO()
-    writer_proc = csv.writer(csv_processos, delimiter=';')
-    writer_proc.writerow(['PID', 'PROCESSO', 'RAM', 'TAMANHO', 'CAMINHO'])
-    writer_proc.writerows(infos_processos)
-    return csv_processos
-
-
-# ============================================================
-# 9. EXECUÇÃO DA CAPTURA (5 AMOSTRAS REAIS)
-# ============================================================
 with Progress(
     TextColumn(f"[bold {AZUL_CLARO}]Capturando[/bold {AZUL_CLARO}]"),
     BarColumn(complete_style=AZUL_CLARO, finished_style=AZUL_CLARO),
     TextColumn("[bold white]{task.percentage:>3.0f}%[/bold white]"),
     TimeElapsedColumn(),
-    console=console
+    console=console,
 ) as progress:
-    task = progress.add_task("captura", total=5)
-    for i in range(5):
-        valores_capturados = []
-        for comp_id in capturar_comp:
-            if comp_id == 6:
-                csv_processos = capturar_processos()
-                enviar_processos = True
-            else:
-                for c in componentes:
-                    if comp_id == c['idComponente']:
-                        val = eval(c['codigo'])   # <-- origem dos valores-base
-                        valores_capturados.append(val)
-
-        data_hora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        writer.writerow([equipamento_atual['idEquipamento'], data_hora] + valores_capturados)
-
+    task = progress.add_task("captura", total=AMOSTRAS_BASE - 1)
+    for _ in range(AMOSTRAS_BASE - 1):
+        amostra = capturar_linha_base()
+        linhas_base.append(
+            [equipamento_atual["idEquipamento"],
+             datetime.now().strftime("%Y-%m-%d %H:%M:%S")]
+            + [amostra.get(nome, primeira[nome]) for nome in nomes_metricas]
+        )
         time.sleep(1)
         progress.advance(task)
 
+medias_base = {
+    nome: round(
+        sum(float(linha[2 + i]) for linha in linhas_base) / len(linhas_base), 2
+    )
+    for i, nome in enumerate(nomes_metricas)
+}
+
+console.print(
+    f"[bold green]Semente pronta:[/bold green] "
+    + ", ".join(f"{k}={v}%" for k, v in medias_base.items())
+)
 
 # ============================================================
-# 10. SIMULAÇÃO DOS DADOS (5 SERVIDORES / 1 SEMANA)  <-- NOVO
-# ------------------------------------------------------------
-# Dados FICTÍCIOS derivados da captura inicial:
-#   - a linha de base é a média das 5 amostras reais acima;
-#   - NÃO há novas chamadas psutil (valores vêm do eval());
-#   - apenas bibliotecas da stdlib: random, datetime, csv, io;
-#   - um CSV por servidor, com 168 amostras horárias.
+# 7. SIMULAÇÃO — SOMENTE STDLIB
 # ============================================================
-def capturar_medias_iniciais(csv_em_memoria):
-    linhas = list(csv.reader(io.StringIO(csv_em_memoria.getvalue()), delimiter=';'))
-    if len(linhas) < 2:
-        return [], {}
-
-    cabecalho = linhas[0]
-    nomes_metricas = [nome for nome in cabecalho if nome not in ('id', 'data_hora')]
-    medias = {}
-
-    for indice, nome in enumerate(cabecalho):
-        if nome in ('id', 'data_hora'):
-            continue
-        valores = []
-        for linha in linhas[1:]:
-            if indice < len(linha) and linha[indice] != '':
-                try:
-                    valores.append(float(linha[indice]))
-                except ValueError:
-                    pass
-        medias[nome] = round(sum(valores) / len(valores), 2) if valores else 0.0
-
-    return nomes_metricas, medias
-
-
 def limitar(valor):
-    return round(min(100.0, max(0.0, valor)), 2)
+    return round(max(0.0, min(100.0, valor)), 2)
 
 
-def em_janela_critica(instante, indice_servidor, nome_metrica, metricas_criticas):
-    """Define quando um componente simulado deve ultrapassar 95%."""
-    # Apenas os 3 primeiros servidores entram em estado crítico.
-    if indice_servidor >= 3 or not metricas_criticas:
+def em_janela_critica(indice_servidor, metrica, instante):
+    """Cada servidor 'estoura' um componente diferente em uma janela da semana."""
+    alvo = nomes_metricas[indice_servidor % len(nomes_metricas)]
+    if metrica != alvo:
         return False
 
-    critica = metricas_criticas[indice_servidor % len(metricas_criticas)]
-    if nome_metrica != critica:
-        return False
-
-    dia = instante.weekday()   # 0=segunda ... 6=domingo
+    dia = instante.weekday()   # 0=seg ... 6=dom
     hora = instante.hour
 
-    if indice_servidor == 0:       # 1º: dias úteis, das 10h às 17h
-        return dia < 5 and 10 <= hora < 17
-    if indice_servidor == 1:       # 2º: fim de semana inteiro
-        return dia >= 5
-    return 20 <= hora < 23         # 3º: todas as noites
+    # "Plantão" por hora: cobre os 168 horários da semana para que sempre
+    # exista um servidor em alerta — inclusive na amostra do momento atual,
+    # que pode cair numa hora não coberta pelas janelas específicas abaixo.
+    if indice_servidor == (dia * 24 + hora) % TOTAL_SERVIDORES_SIMULACAO:
+        return True
+
+    if indice_servidor == 0:   # CPU em dias úteis, das 9h às 12h
+        return dia < 5 and 9 <= hora < 12
+    if indice_servidor == 1:   # RAM todas as noites, das 19h às 22h
+        return 19 <= hora < 22
+    if indice_servidor == 2:   # ARMAZENAMENTO no fim de semana inteiro
+        return dia >= 5 and 10 <= hora < 18
+    if indice_servidor == 3:   # componente da vez na madrugada de terça
+        return dia == 1 and 0 <= hora < 6
+    return 13 <= hora < 16     # 5º servidor: todas as tardes
 
 
-def buscar_ids_servidores(fk_empresa, limite=QTD_SERVIDORES_SIMULADOS):
-    """Busca IDs de equipamentos reais (tipo 'Servidor') da empresa do usuário."""
+def buscar_ids_servidores():
+    """IDs de até 5 servidores reais da empresa do usuário logado."""
     conexao = mysql.connect(
         host=DB_HOST,
         user=DB_USER,
         password=DB_PASSWORD,
         database=DB_NAME,
         port=PORT,
-        cursorclass=mysql.cursors.DictCursor
+        cursorclass=mysql.cursors.DictCursor,
     )
     try:
         with conexao.cursor() as cur:
             cur.execute(
                 """
-                SELECT idEquipamento, nome
+                SELECT idEquipamento
                 FROM equipamento
                 WHERE fkEmpresa = %s AND tipo = 'Servidor'
                 ORDER BY idEquipamento
                 LIMIT %s;
                 """,
-                (fk_empresa, limite),
+                (fk_empresa, QTD_SERVIDORES),
             )
-            return [linha['idEquipamento'] for linha in cur.fetchall()]
+            return [linha["idEquipamento"] for linha in cur.fetchall()]
     finally:
         conexao.close()
 
 
-def simular_servidores(csv_em_memoria, componentes, cabecalho, ids_servidores):
-    nomes_metricas, medias = capturar_medias_iniciais(csv_em_memoria)
-    if not nomes_metricas or not ids_servidores:
-        return {}, 0
+def buscar_regras_alerta(ids_servidores):
+    """Regras ativas de parametro_alerta dos servidores simulados.
 
-    # Só componentes medidos em '%' podem "estourar" 95%.
-    medida_por_tipo = {c['tipo']: c['medida'] for c in componentes}
-    metricas_percentuais = [m for m in nomes_metricas if medida_por_tipo.get(m) == '%']
-    metricas_criticas = metricas_percentuais or nomes_metricas
-
-    fatores = [1.08, 0.92, 1.12, 0.85, 1.00]
-
-    fim = datetime.now().replace(minute=0, second=0, microsecond=0)
-    inicio = fim - timedelta(days=DIAS_SIMULADOS)
-
-    arquivos = {}
-    total_amostras = 0
-
-    # IDs reais do banco, mantendo a ordem da consulta
-    for indice, servidor_id in enumerate(ids_servidores):
-        aleatorio = random.Random(SEMENTE_SIMULACAO + servidor_id)
-        fator = fatores[indice % len(fatores)]
-
-        buffer = io.StringIO()
-        writer_sim = csv.writer(buffer, delimiter=';')
-        writer_sim.writerow(cabecalho)
-
-        instante = inicio
-        while instante < fim:
-            valores = []
-            for nome in nomes_metricas:
-                base = medias[nome]
-                valor = base * fator + aleatorio.gauss(0, DESVIO_PADRAO)
-
-                if em_janela_critica(instante, indice, nome, metricas_criticas):
-                    valor = aleatorio.uniform(LIMIAR_CRITICO + 0.5, 99.9)
-
-                valores.append(limitar(valor))
-
-            writer_sim.writerow(
-                [servidor_id, instante.strftime("%Y-%m-%d %H:%M:%S")] + valores
+    Mesma consulta usada em ana-teste-leitura.py: os limites vêm do banco
+    (60/90 para os componentes padrão, 70/90, 75/90, 80/95 nos seeds).
+    """
+    conexao = mysql.connect(
+        host=DB_HOST,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        database=DB_NAME,
+        port=PORT,
+        cursorclass=mysql.cursors.DictCursor,
+    )
+    try:
+        with conexao.cursor() as cur:
+            cur.execute(
+                """
+                SELECT pa.fkEquipamento AS id_servidor,
+                       pa.fkComponente  AS id_componente,
+                       pa.nomeMetrica,
+                       pa.limite_atencao,
+                       pa.limite_critico,
+                       c.nome AS componente
+                FROM parametro_alerta pa
+                JOIN componente c ON c.idComponente = pa.fkComponente
+                WHERE pa.ativo = 1
+                  AND pa.fkEquipamento IN (%s)
+                ORDER BY pa.fkEquipamento, pa.fkComponente;
+                """ % ", ".join(["%s"] * len(ids_servidores)),
+                tuple(ids_servidores),
             )
-            total_amostras += 1
-            instante += timedelta(minutes=INTERVALO_MINUTOS)
+            regras = cur.fetchall()
+    finally:
+        conexao.close()
 
-        arquivos[servidor_id] = buffer
+    por_servidor = {}
+    for regra in regras:
+        por_servidor.setdefault(int(regra["id_servidor"]), []).append(
+            {
+                "metrica": regra["nomeMetrica"],
+                "componente": regra["componente"],
+                "atencao": float(regra["limite_atencao"]),
+                "critico": float(regra["limite_critico"]),
+            }
+        )
+    return por_servidor
 
-    return arquivos, total_amostras
+
+def nivel_alerta(valor, limite_atencao, limite_critico):
+    """CRITICO, ATENCAO ou None — igual à leitura real."""
+    if valor is None:
+        return None
+    if valor >= float(limite_critico):
+        return "CRITICO"
+    if valor >= float(limite_atencao):
+        return "ATENCAO"
+    return None
 
 
-ids_servidores = buscar_ids_servidores(fk_empresa)
+def avaliar_alerta_atual(buffer, regras):
+    """Avalia a ÚLTIMA amostra/leitura do CSV contra os limites do banco.
 
-if len(ids_servidores) < QTD_SERVIDORES_SIMULADOS:
+    Espelha calcular_alertas_por_servidor(): ordena por data_hora, pega a
+    última linha e aplica os limites de cada regra ativa do servidor.
+    """
+    linhas = [linha for linha in csv.reader(
+        io.StringIO(buffer.getvalue()), delimiter=";"
+    ) if linha]
+    if len(linhas) < 2:
+        return "SEM LEITURA", [], ""
+
+    colunas = linhas[0]
+    ultima = dict(zip(colunas[1:], linhas[-1][1:]))  # ignora a coluna "id"
+    data_hora = ultima.pop("data_hora", "")
+
+    alertas = []
+    for regra in regras:
+        aliases = ALIAS_METRICAS.get(
+            regra["metrica"], {regra["metrica"]}
+        )
+        valor = None
+        for alias in aliases:
+            chave = next(
+                (c for c in ultima if c.strip().lower() == alias.strip().lower()),
+                None,
+            )
+            if chave is not None and ultima[chave] != "":
+                try:
+                    valor = float(ultima[chave])
+                    break
+                except ValueError:
+                    pass
+
+        # Sem regra no banco para a métrica, usa os limites padrão 60/90.
+        nivel = nivel_alerta(
+            valor,
+            regra.get("atencao", LIMITE_ATENCAO_PADRAO),
+            regra.get("critico", LIMITE_CRITICO_PADRAO),
+        )
+        if nivel is not None:
+            alertas.append(
+                {
+                    "componente": regra.get("componente", regra["metrica"]),
+                    "metrica": regra["metrica"],
+                    "nivel": nivel,
+                    "valor": valor,
+                    "atencao": regra.get("atencao", LIMITE_ATENCAO_PADRAO),
+                    "critico": regra.get("critico", LIMITE_CRITICO_PADRAO),
+                }
+            )
+
+    if any(a["nivel"] == "CRITICO" for a in alertas):
+        nivel_geral = "CRITICO"
+    elif alertas:
+        nivel_geral = "ATENCAO"
+    else:
+        nivel_geral = "NORMAL"
+
+    return nivel_geral, alertas, data_hora
+
+
+def simular_servidor(servidor_id, indice, inicio, fim):
+    aleatorio = random.Random(SEMENTE + int(servidor_id))
+    fator = FATORES_SERVIDOR[indice % len(FATORES_SERVIDOR)]
+
+    buffer = io.StringIO()
+    escritor = csv.writer(buffer, delimiter=";")
+    escritor.writerow(cabecalho_csv)
+
+    instante = inicio
+    total = 0
+    criticos = 0
+
+    # "<= fim" inclui a amostra do instante atual (hora corrente). Sem isso a
+    # última leitura ficava em (fim - 1h) e nunca representava o "agora".
+    while instante <= fim:
+        valores = []
+        for nome in nomes_metricas:
+            base = medias_base[nome]
+            valor = base * fator + aleatorio.gauss(0, DESVIO_PADRAO)
+
+            # leve crescimento gradual do armazenamento ao longo da semana
+            if "ARMAZENAMENTO" in nome.upper() or "DISCO" in nome.upper():
+                valor += 0.35 * (instante - inicio).days
+
+            if em_janela_critica(indice, nome, instante):
+                valor = aleatorio.uniform(95.5, 99.7)
+                criticos += 1
+
+            valores.append(limitar(valor))
+
+        escritor.writerow(
+            [servidor_id, instante.strftime("%Y-%m-%d %H:%M:%S")] + valores
+        )
+        total += 1
+        instante += timedelta(minutes=INTERVALO_MINUTOS)
+
+    return buffer, total, criticos
+
+
+ids_servidores = buscar_ids_servidores()
+
+if not ids_servidores:
+    console.print("[bold red]Nenhum servidor da empresa encontrado. Encerrando.[/bold red]")
+    sys.exit(1)
+
+TOTAL_SERVIDORES_SIMULACAO = len(ids_servidores)
+
+if len(ids_servidores) < QTD_SERVIDORES:
     console.print(
         f"[bold yellow]Aviso: a empresa possui apenas {len(ids_servidores)} "
-        f"servidor(es) cadastrado(s). A simulação usará os IDs disponíveis.[/bold yellow]"
+        f"servidor(es). Simulando os disponíveis.[/bold yellow]"
     )
 
 console.print(
     Panel(
-        f"[bold white]Simulando {len(ids_servidores)} servidores fictícios "
-        f"({DIAS_SIMULADOS} dias) a partir da captura inicial...[/bold white]",
+        f"[bold white]Simulando {len(ids_servidores)} servidor(es) da empresa "
+        f"'{nome_empresa}' por {DIAS_SIMULADOS} dias...[/bold white]",
         title=f"[bold {AZUL_CLARO}]SIMULAÇÃO[/bold {AZUL_CLARO}]",
-        border_style=AZUL_CLARO, style=f"on {AZUL_ESCURO}"
+        border_style=AZUL_CLARO,
+        style=f"on {AZUL_ESCURO}",
     )
 )
 
-arquivos_simulados, total_amostras_simuladas = simular_servidores(
-    csv_buffer, componentes, cabecalho_csv, ids_servidores
-)
+fim_simulacao = datetime.now().replace(minute=0, second=0, microsecond=0)
+inicio_simulacao = fim_simulacao - timedelta(days=DIAS_SIMULADOS)
 
-console.print(
-    f"[bold green]Simulação pronta: {len(arquivos_simulados)} servidores, "
-    f"{total_amostras_simuladas} amostras fictícias.[/bold green]"
-)
+regras_por_servidor = buscar_regras_alerta(ids_servidores)
 
+arquivos_simulados = {}
+total_amostras = 0
+total_alertas_atuais = 0
+
+for indice, servidor_id in enumerate(ids_servidores):
+    buffer, total, criticos = simular_servidor(
+        servidor_id, indice, inicio_simulacao, fim_simulacao
+    )
+    arquivos_simulados[servidor_id] = buffer
+    total_amostras += total
+
+    # Alerta atual = última leitura acima dos limites de parametro_alerta.
+    # Se o servidor não tiver regras no banco, usa os padrões 60/90.
+    regras_servidor = list(regras_por_servidor.get(servidor_id, []))
+    cobertas = {
+        alias.lower()
+        for regra in regras_servidor
+        for alias in ALIAS_METRICAS.get(regra["metrica"], {regra["metrica"]})
+    }
+    for nome in nomes_metricas:
+        if nome.lower() not in cobertas:
+            regras_servidor.append(
+                {
+                    "metrica": nome,
+                    "componente": nome,
+                    "atencao": LIMITE_ATENCAO_PADRAO,
+                    "critico": LIMITE_CRITICO_PADRAO,
+                }
+            )
+
+    nivel_atual, alertas_atuais, data_ultima = avaliar_alerta_atual(
+        buffer, regras_servidor
+    )
+    if alertas_atuais:
+        total_alertas_atuais += 1
+
+    detalhes = ", ".join(
+        f"{a['metrica']}={a['valor']}% (limite {a['critico']:g}%)"
+        for a in alertas_atuais
+    )
+    cor_nivel = "bold red" if nivel_atual == "CRITICO" else "bold yellow"
+    selo = (
+        f" [bold {cor_nivel}]● ALERTA ATUAL: {nivel_atual}[/bold {cor_nivel}]"
+        f" [dim white]{detalhes}[/dim white]" if alertas_atuais else ""
+    )
+    console.print(
+        f"  [dim white]servidor {servidor_id}:[/dim white] {total} amostras, "
+        f"{criticos} leituras acima de {LIMIAR_CRITICO}% "
+        f"[dim white]({nomes_metricas[indice % len(nomes_metricas)]})[/dim white]"
+        f"\n      [dim white]última leitura {data_ultima}: {nivel_atual}[/dim white]{selo}"
+    )
 
 # ============================================================
-# 11. ENVIO DOS ARQUIVOS CSV PARA O S3 (BRONZE)
+# 8. ENVIO PARA O S3 (após a simulação)
 # ============================================================
 timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-# --- Captura real (comportamento original) ---
-nome_arquivo = f"captura_{timestamp}.csv"
-arquivo_s3 = f"bronze/hardware/{nome_empresa}/{equipamento_atual['idEquipamento']}/{nome_arquivo}"
-
 with console.status(
-    f"[bold {AZUL_CLARO}]Enviando captura CSV para a zona Bronze do S3...[/bold {AZUL_CLARO}]",
-    spinner="dots"
-):
-    s3.put_object(
-        Bucket=BUCKET,
-        Key=arquivo_s3,
-        Body=csv_buffer.getvalue().encode("utf-8"),
-        ContentType="text/csv"
-    )
-
-# --- Capturas simuladas (NOVO) ---
-with console.status(
-    f"[bold {AZUL_CLARO}]Enviando {len(arquivos_simulados)} capturas simuladas...[/bold {AZUL_CLARO}]",
-    spinner="dots"
+    f"[bold {AZUL_CLARO}]Enviando {len(arquivos_simulados)} capturas simuladas "
+    f"para a Bronze do S3...[/bold {AZUL_CLARO}]",
+    spinner="dots",
 ):
     for servidor_id, buffer in arquivos_simulados.items():
-        nome_simulado = f"captura_{timestamp}.csv"
-        arquivo_simulado_s3 = (
-            f"bronze/hardware/{nome_empresa}/{servidor_id}/{nome_simulado}"
+        arquivo_s3 = (
+            f"bronze/hardware/{nome_empresa}/{servidor_id}/captura_{timestamp}.csv"
         )
+
         s3.put_object(
             Bucket=BUCKET,
-            Key=arquivo_simulado_s3,
+            Key=arquivo_s3,
             Body=buffer.getvalue().encode("utf-8"),
-            ContentType="text/csv"
-        )
-
-# --- Processos (comportamento original) ---
-nome_arquivo_processos = f"captura_processos_{timestamp}.csv"
-arquivo_processos_s3 = (
-    f"bronze/processo/{nome_empresa}/{equipamento_atual['idEquipamento']}/{nome_arquivo_processos}"
-)
-
-if enviar_processos:
-    with console.status(
-        f"[bold {AZUL_CLARO}]Enviando processos CSV para a zona Bronze do S3...[/bold {AZUL_CLARO}]",
-        spinner="dots"
-    ):
-        s3.put_object(
-            Bucket=BUCKET,
-            Key=arquivo_processos_s3,
-            Body=csv_processos.getvalue().encode("utf-8"),
-            ContentType="text/csv"
+            ContentType="text/csv",
         )
 
 console.print()
 console.print(
     Panel(
-        f"[bold white]Capturas enviadas para o S3 com sucesso![/bold white]\n\n"
+        f"[bold white]Capturas simuladas enviadas com sucesso![/bold white]\n\n"
         f"[dim white]Bucket:[/dim white] [bold {AZUL_CLARO}]{BUCKET}[/bold {AZUL_CLARO}]\n"
-        f"[dim white]Captura real:[/dim white] [bold {AZUL_CLARO}]{arquivo_s3}[/bold {AZUL_CLARO}]\n"
-        f"[dim white]Simuladas:[/dim white] [bold {AZUL_CLARO}]{len(arquivos_simulados)} arquivos "
-        f"({total_amostras_simuladas} amostras)[/bold {AZUL_CLARO}]",
+        f"[dim white]Empresa:[/dim white] [bold {AZUL_CLARO}]{nome_empresa}[/bold {AZUL_CLARO}]\n"
+        f"[dim white]Servidores:[/dim white] [bold {AZUL_CLARO}]{len(arquivos_simulados)}[/bold {AZUL_CLARO}]\n"
+        f"[dim white]Amostras:[/dim white] [bold {AZUL_CLARO}]{total_amostras}[/bold {AZUL_CLARO}]\n"
+        f"[dim white]Alertas na última leitura:[/dim white] "
+        f"[bold red]{total_alertas_atuais} servidor(es)[/bold red]\n"
+        f"[dim white]Período:[/dim white] [bold {AZUL_CLARO}]"
+        f"{inicio_simulacao:%d/%m/%Y %H:%M} a {fim_simulacao:%d/%m/%Y %H:%M}[/bold {AZUL_CLARO}]",
         title=f"[bold {AZUL_CLARO}]UPLOAD CONCLUÍDO[/bold {AZUL_CLARO}]",
         border_style=AZUL_CLARO,
         style=f"on {PRETO}",
-        padding=(1, 2)
+        padding=(1, 2),
     )
 )
 
