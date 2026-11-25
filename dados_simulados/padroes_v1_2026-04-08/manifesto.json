@@ -1,0 +1,54 @@
+{
+  "origem": "SIMULADO",
+  "bucket": "aws-s3-infrawatch-testes",
+  "empresa": {
+    "id": 2,
+    "nome": "TechShield Ltda"
+  },
+  "primeiro_dia": "2026-03-26",
+  "ultimo_dia": "2026-04-08",
+  "servidores": [
+    {
+      "id": 6,
+      "nome": "SIMULADO - CPU no almoco",
+      "perfil": "cpu",
+      "mac": "2783897475542",
+      "amostras": 4032,
+      "minutos_ficticios": 20160
+    },
+    {
+      "id": 7,
+      "nome": "SIMULADO - RAM no quinto dia util",
+      "perfil": "ram",
+      "mac": "2321479623273",
+      "amostras": 4032,
+      "minutos_ficticios": 20160
+    },
+    {
+      "id": 8,
+      "nome": "SIMULADO - Rede no feriado",
+      "perfil": "rede",
+      "mac": "2306150092986",
+      "amostras": 4032,
+      "minutos_ficticios": 20160
+    },
+    {
+      "id": 9,
+      "nome": "SIMULADO - Servidor saudavel",
+      "perfil": "saudavel",
+      "mac": "3175106427587",
+      "amostras": 4032,
+      "minutos_ficticios": 20160
+    }
+  ],
+  "arquivos": [
+    "/home/mat/script-captura-infrawatch/dados_simulados/padroes_v1_2026-04-08/bronze/processo/TechShield Ltda/6/captura_processos_SIMULADO_padroes_v1_2026-04-08.csv",
+    "/home/mat/script-captura-infrawatch/dados_simulados/padroes_v1_2026-04-08/bronze/hardware/TechShield Ltda/6/captura_SIMULADO_padroes_v1_2026-04-08.csv",
+    "/home/mat/script-captura-infrawatch/dados_simulados/padroes_v1_2026-04-08/bronze/processo/TechShield Ltda/7/captura_processos_SIMULADO_padroes_v1_2026-04-08.csv",
+    "/home/mat/script-captura-infrawatch/dados_simulados/padroes_v1_2026-04-08/bronze/hardware/TechShield Ltda/7/captura_SIMULADO_padroes_v1_2026-04-08.csv",
+    "/home/mat/script-captura-infrawatch/dados_simulados/padroes_v1_2026-04-08/bronze/processo/TechShield Ltda/8/captura_processos_SIMULADO_padroes_v1_2026-04-08.csv",
+    "/home/mat/script-captura-infrawatch/dados_simulados/padroes_v1_2026-04-08/bronze/hardware/TechShield Ltda/8/captura_SIMULADO_padroes_v1_2026-04-08.csv",
+    "/home/mat/script-captura-infrawatch/dados_simulados/padroes_v1_2026-04-08/bronze/processo/TechShield Ltda/9/captura_processos_SIMULADO_padroes_v1_2026-04-08.csv",
+    "/home/mat/script-captura-infrawatch/dados_simulados/padroes_v1_2026-04-08/bronze/hardware/TechShield Ltda/9/captura_SIMULADO_padroes_v1_2026-04-08.csv"
+  ]
+}
