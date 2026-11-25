@@ -157,7 +157,7 @@ if REQUEST_PROBE_METHOD not in ("GET", "POST"):
 # ============================================================
 # 1. CONEXÃO COM O S3
 # ============================================================
-BUCKET = "infrawatch-server-s3"
+BUCKET = "aws-s3-infrawatch-testes"
 if not BUCKET_BRONZE:
     BUCKET_BRONZE = BUCKET
 
@@ -1097,7 +1097,9 @@ with Progress(
                 val = amostra_dashboard.get(campo)
             else:
                 val = eval(componente['codigo'])
+
             valores_capturados.append(val)
+
         data_hora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         valores_dashboard = [amostra_dashboard["inicio"], amostra_dashboard["fim"]]
         valores_dashboard.extend(amostra_dashboard[campo] for campo in campos_metricas_dashboard)
