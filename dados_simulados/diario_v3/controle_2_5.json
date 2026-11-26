@@ -1,0 +1,28 @@
+{
+  "dias": {
+    "2026-10-17": {
+      "origem": "SIMULADO",
+      "amostras": 288,
+      "arquivos": [
+        "bronze/processo/TechShield Ltda/5/captura_processos_2026-10-17_00-00-00.csv",
+        "bronze/hardware/TechShield Ltda/5/captura_2026-10-17_00-00-00.csv"
+      ],
+      "sha256": [
+        "46786187449f4071366a7034953da8ab4b4abab0e8eb68d221fe9df44c524018",
+        "d66a9c4bff1ea94590c49a6281208910c40ae91795fa069fecff7d35be1bb7ab"
+      ],
+      "enviado": true,
+      "bucket": "aws-s3-infrawatch-testes"
+    }
+  },
+  "empresa": {
+    "id": 2,
+    "nome": "TechShield Ltda"
+  },
+  "equipamento": {
+    "id": 5,
+    "nome": "TechShield Ltda.server_id#4",
+    "mac": "250825370816912",
+    "fkEmpresa": 2
+  }
+}
