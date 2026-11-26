@@ -1,4 +1,3 @@
-                                                                                                                                                                                                                                                                                                                                                                                                                                           
 import boto3
 import csv
 import io
@@ -6,7 +5,11 @@ import json
 import os
 import urllib.parse
 import math
-from datetime import datetime, timedelta, timezone
+import random
+import re
+from collections import defaultdict
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 s3 = boto3.client('s3')
 
@@ -32,6 +35,14 @@ def buscar_ultimo_arquivo_s3(bucket, prefixo='bronze/hardware/'):
         arquivos_csv, key=lambda x: x['LastModified'], reverse=True
     )[0]
     return arquivo_mais_recente['Key']
+
+def sufixo_dashboard(arquivo=None):
+    nome = (arquivo or '').rsplit('/', 1)[-1]
+    data = re.search(r'(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.csv$', nome, re.I)
+    if data:
+        return data.group(1)
+    return datetime.now(FUSO_PADROES).strftime('%Y-%m-%d_%H-%M-%S')
+
 
 def processar_arquivo_s3(bucket, arquivo):
     print(f'Processando arquivo: s3://{bucket}/{arquivo}')
@@ -155,8 +166,13 @@ def processar_arquivo_s3(bucket, arquivo):
 
     # Gera arquivos próprios da dashboard sem alterar os arquivos existentes.
     gerar_dash_previsibilidade_s3(bucket, arquivo, empresa, equipamento)
-    gerar_dashboard_matheus(bucket, empresa)
+    gerar_dashboard_matheus(bucket, empresa, arquivo)
     gerar_gestao_problemas_ana(bucket, arquivo, empresa)
+    try:
+        resultado = gerar_dash_padroes(bucket, empresa, arquivo)
+        print(f'Dashboard de padrões: {resultado}')
+    except Exception as erro:
+        print(f'Erro ao gerar dashboard de padrões para {empresa}: {erro}')
 
 
 # ============================================================
@@ -664,7 +680,7 @@ def normalizar_amostra_adicional(linha, empresa_pasta, servidor_pasta):
     return amostra
 
 
-def gerar_dashboard_matheus(bucket, empresa_pasta):
+def gerar_dashboard_matheus(bucket, empresa_pasta, arquivo=None):
     # Reprocessa o histórico da empresa, sem apagar arquivos Bronze.
     # IDs e limites do MySQL continuam sendo responsabilidade do backend.
     separados = processos_por_intervalo(bucket, empresa_pasta)
@@ -719,6 +735,7 @@ def gerar_dashboard_matheus(bucket, empresa_pasta):
             'servidores': sorted({a['servidor_id'] for a in amostras}, key=int),
             'amostras': gold_amostras,
         }
+        sufixo = sufixo_dashboard(arquivo)
         for servidor in gold['servidores']:
             gold_servidor = gold.copy()
             gold_servidor['servidores'] = [servidor]
@@ -729,7 +746,7 @@ def gerar_dashboard_matheus(bucket, empresa_pasta):
 
             salvar_adicional(
                 bucket,
-                f'gold/{empresa_pasta}/{servidor}/dashboard.json',
+                f'gold/{empresa_pasta}/{servidor}/dashboard_{sufixo}.json',
                 gold_servidor
             )
     print(f'Dashboard Matheus: {len(por_empresa)} empresa(s); {invalidas} amostra(s) inválida(s).')
@@ -851,10 +868,184 @@ def _arquivos_do_evento_lambda(event):
     return arquivos
 
 
+# Dashboard de identificação de padrões (Gustavo).
+# Evento agendado/manual: {"acao":"gerar_dash_padroes","bucket":"...","empresa":"..."}
+
+FUSO_PADROES = ZoneInfo('America/Sao_Paulo')
+HISTORICO_PADROES = 430
+EVENTOS_PADROES = ('Pagamento de salários', 'Vencimento de boletos', 'Black Friday', '13º salário (2ª parcela)')
+
+
+def datas_eventos_padroes(ano, mes):
+    primeiro = date(ano, mes, 1)
+    uteis = [primeiro + timedelta(days=i) for i in range(9)
+             if (primeiro + timedelta(days=i)).weekday() < 5]
+    datas = {EVENTOS_PADROES[0]: uteis[4], EVENTOS_PADROES[1]: date(ano, mes, 8)}
+    if mes == 11:
+        quinta = primeiro + timedelta(days=(3 - primeiro.weekday()) % 7 + 21)
+        datas[EVENTOS_PADROES[2]] = quinta + timedelta(days=1)
+    if mes == 12:
+        datas[EVENTOS_PADROES[3]] = date(ano, mes, 20)
+    return datas
+
+
+def calendario_padroes(inicio, hoje):
+    calendario = defaultdict(list)
+    for ano in range(inicio.year, hoje.year + 2):
+        for mes in range(1, 13):
+            for nome, dia in datas_eventos_padroes(ano, mes).items():
+                if dia >= inicio:
+                    calendario[nome].append(dia)
+    return calendario
+
+
+def dia_vazio_padroes():
+    return {'horas': [0] * 24, 'minutos_resolvidos': 0, 'resolvidos': 0}
+
+
+def sintetico_padroes(empresa, inicio, hoje, calendario):
+    especiais = {dia for datas in calendario.values() for dia in datas}
+    dias = {}
+    for i in range((hoje - inicio).days):
+        dia = inicio + timedelta(days=i)
+        rnd = random.Random(empresa + ':' + dia.isoformat())
+        resumo = dia_vazio_padroes()
+        qtd = rnd.randint(0, 4 if dia.weekday() < 5 else 2)
+        if dia in especiais:
+            qtd += rnd.randint(6, 12)
+        for _ in range(qtd):
+            hora = rnd.randint(16, 19) if dia in especiais and rnd.random() < .7 else rnd.randrange(24)
+            resumo['horas'][hora] += 1
+            resumo['minutos_resolvidos'] += rnd.randint(8, 45)
+        resumo['resolvidos'] = qtd
+        dias[dia.isoformat()] = resumo
+    return dias
+
+
+def ler_json_padroes(bucket, chave):
+    try:
+        obj = s3.get_object(Bucket=bucket, Key=chave)
+    except Exception as erro:
+        if getattr(erro, 'response', {}).get('Error', {}).get('Code') in ('NoSuchKey', '404'):
+            return {}, None
+        raise
+    return json.loads(obj['Body'].read()), obj['ETag']
+
+
+def gravar_json_padroes(bucket, chave, dados, etag):
+    # Escrita condicional: uma execução atrasada não substitui outra mais recente.
+    condicao = {'IfMatch': etag} if etag else {'IfNoneMatch': '*'}
+    s3.put_object(Bucket=bucket, Key=chave, ContentType='application/json',
+                  Body=json.dumps(dados, ensure_ascii=False, allow_nan=False).encode(), **condicao)
+
+
+def instante_padroes(texto):
+    valor = datetime.fromisoformat(texto.replace('Z', '+00:00'))
+    if valor.tzinfo is None:
+        raise ValueError('Horário de chamado sem fuso.')
+    return valor
+
+
+def serie_padroes(dias, inicio, quantidade):
+    return [dias.get((inicio + timedelta(days=i)).isoformat(), dia_vazio_padroes())
+            for i in range(quantidade)]
+
+
+def mapa_padroes(dias, hoje, janela):
+    inicio = hoje - timedelta(days=janela)
+    matriz = [[0] * 24 for _ in range(7)]
+    for i, resumo in enumerate(serie_padroes(dias, inicio, janela)):
+        linha = matriz[(inicio + timedelta(days=i)).weekday()]
+        for hora, qtd in enumerate(resumo['horas']):
+            linha[hora] += qtd
+    total = sum(map(sum, matriz))
+    maximo = max(map(max, matriz))
+    topo = sum(sorted(map(sum, zip(*matriz)), reverse=True)[:6])
+    atipicos = sum(n for linha in matriz for n in linha if n <= maximo / 4)
+    janelas = [(sum(linha[h:h+3]), d, h) for d, linha in enumerate(matriz) for h in range(22)]
+    def janela_extrema(funcao):
+        if not total:
+            return None
+        n, d, h = funcao(janelas, key=lambda item: item[0])
+        return {'dia_semana': d, 'inicio_hora': h, 'fim_hora': h+3, 'alertas': n}
+    return {'janela_dias': janela, 'inicio': inicio.isoformat(), 'fim': (hoje-timedelta(days=1)).isoformat(),
+            'contagens': matriz, 'media_semanal': [[n / (janela // 7) for n in linha] for linha in matriz],
+            'kpis': {'pct_pico': round(100*topo/total) if total else None,
+                     'alertas_atipicos': atipicos, 'pct_atipicos': round(100*atipicos/total) if total else None,
+                     'janela_risco': janela_extrema(max), 'janela_manutencao': janela_extrema(min)}}
+
+
+def previsoes_padroes(dias, calendario, hoje, inicio):
+    recentes = serie_padroes(dias, hoje-timedelta(days=30), 30)
+    normal = [sum(coluna)/30 for coluna in zip(*(dia['horas'] for dia in recentes))]
+    media = sum(normal)
+    eventos = []
+    for nome, datas in calendario.items():
+        futura = min(dia for dia in datas if dia >= hoje)
+        passadas = [dia for dia in datas if inicio <= dia < hoje]
+        ref = max(passadas) if passadas else None
+        evento = {'nome': nome, 'data': futura.isoformat(), 'dias_restantes': (futura-hoje).days,
+                  'referencia': ref.isoformat() if ref else None, 'ocorrencias_passadas': len(passadas),
+                  'confianca': 'alta' if len(passadas)>=3 else 'média' if len(passadas)==2 else 'baixa',
+                  'disponivel': False}
+        eventos.append(evento)
+        if not ref or ref-timedelta(days=30) < inicio:
+            continue
+        anterior = serie_padroes(dias, ref-timedelta(days=30), 30)
+        base = sum(sum(d['horas']) for d in anterior)/30
+        fator = min(2, max(.5, media/base)) if base else 1
+        resumo = dias.get(ref.isoformat(), dia_vazio_padroes())
+        perfil = resumo['horas']
+        total = sum(perfil)
+        previsto = math.floor(total*fator + .5)
+        duracao = resumo['minutos_resolvidos']/resumo['resolvidos'] if resumo['resolvidos'] else None
+        h = max(range(22), key=lambda i: sum(perfil[i:i+3]))
+        razao = previsto/media if media else None
+        evento.update(disponivel=True, incidentes_referencia=total, incidentes_previstos=previsto,
+            fator_crescimento=fator, fator_dia_normal=razao,
+            risco=None if razao is None else 'alto' if razao>=3 else 'médio' if razao>=1.5 else 'baixo',
+            faixa=[math.floor(previsto*n+.5) for n in (.75,1.25)], duracao_media_min=duracao,
+            tempo_incidente_previsto_min=round(previsto*duracao) if duracao is not None else None,
+            hora_pico=f'{h}h às {h+3}h' if total else None, perfil_normal=normal, perfil_referencia=perfil,
+            perfil_previsto=[round(n*fator,2) for n in perfil])
+    return sorted(eventos, key=lambda e: e['data'])[:3]
+
+
+def gerar_dash_padroes(bucket, empresa, arquivo=None):
+    if not bucket or not isinstance(empresa, str) or not empresa.strip() or '/' in empresa:
+        raise ValueError('Informe bucket e empresa (nome da pasta Bronze).')
+    agora = datetime.now(timezone.utc)
+    hoje = agora.astimezone(FUSO_PADROES).date()
+    inicio = hoje - timedelta(days=HISTORICO_PADROES)
+    calendario = calendario_padroes(inicio, hoje)
+    janela = int(os.getenv('JANELA_MAPA_DIAS', '28'))
+    if janela < 7 or janela % 7 or janela > HISTORICO_PADROES:
+        raise ValueError('Use semanas completas dentro do histórico para JANELA_MAPA_DIAS.')
+    chave = f'gold/{empresa}/dash-padroes_{sufixo_dashboard(arquivo)}.json'
+    anterior, etag = ler_json_padroes(bucket, chave)
+    if (anterior.get('versao') == 2 and anterior.get('data_referencia') == hoje.isoformat()
+            and anterior['mapa_calor']['janela_dias'] == janela
+            and agora - instante_padroes(anterior['gerado_em']) < timedelta(hours=1)):
+        return {'chave': chave, 'atualizado': False}
+    dias = sintetico_padroes(empresa, inicio, hoje, calendario)
+    gold = {
+        'versao': 2, 'empresa': empresa, 'gerado_em': agora.isoformat(),
+        'data_referencia': hoje.isoformat(), 'fuso': 'America/Sao_Paulo',
+        'fonte': {'mapa_calor': 'sintetico', 'previsibilidade': 'sintetico'},
+        'mapa_calor': mapa_padroes(dias, hoje, janela),
+        'previsibilidade': {'eventos': previsoes_padroes(dias, calendario, hoje, inicio)},
+    }
+    gravar_json_padroes(bucket, chave, gold, etag)
+    return {'chave': chave, 'atualizado': True}
+
+
 def lambda_handler(event, context):
     """Processa cada CSV de hardware recebido em uma notificação do S3."""
     if not isinstance(event, dict):
         raise ValueError('O evento da Lambda deve ser um objeto JSON.')
+
+    if event.get("acao") == "gerar_dash_padroes":
+        return gerar_dash_padroes(event.get("bucket") or os.getenv("S3_BUCKET") or os.getenv("BUCKET_NAME"), event.get("empresa"))
 
     arquivos = _arquivos_do_evento_lambda(event)
     if not arquivos:
@@ -871,7 +1062,7 @@ def lambda_handler(event, context):
             if not bucket:
                 raise ValueError('Bucket ausente no evento de processos.')
             carregar_leitor_processos().processar_arquivo_processos_s3(bucket, chave)
-            gerar_dashboard_matheus(bucket, chave.split('/')[2])
+            gerar_dashboard_matheus(bucket, chave.split('/')[2], chave)
             processados.append({'bucket': bucket, 'key': chave})
             continue
 
