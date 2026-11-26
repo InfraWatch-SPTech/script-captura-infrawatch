@@ -814,6 +814,7 @@ def gerar_gestao_problemas_ana(bucket, arquivo_origem, empresa_pasta):
             salvar_adicional(bucket, f'gold/hardwares/{empresa_pasta}/{identificador}/dash-gestao-problemas_{timestamp}.json', servidor)
     finally:
         bd.close()
+         
 
 
 def carregar_leitor_processos():

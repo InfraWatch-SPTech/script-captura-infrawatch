@@ -17,7 +17,7 @@ from datetime import date, datetime, timedelta, timezone
 
 
 PASTA = Path(__file__).resolve().parent
-BUCKET = "aws-s3-infrawatch-testes"
+BUCKET = "infrawatch-server-s3"
 LOTE = "padroes_v1_2026-04-08"
 FUSO = timezone(timedelta(hours=-3))
 PRIMEIRO_DIA = date(2026, 3, 26)

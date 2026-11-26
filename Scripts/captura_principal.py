@@ -157,7 +157,7 @@ if REQUEST_PROBE_METHOD not in ("GET", "POST"):
 # ============================================================
 # 1. CONEXÃO COM O S3
 # ============================================================
-BUCKET = "aws-s3-infrawatch-testes"
+BUCKET = "infrawatch-server-s3"
 if not BUCKET_BRONZE:
     BUCKET_BRONZE = BUCKET
 
