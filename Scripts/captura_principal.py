@@ -157,7 +157,7 @@ if REQUEST_PROBE_METHOD not in ("GET", "POST"):
 # ============================================================
 # 1. CONEXÃO COM O S3
 # ============================================================
-BUCKET = "teste-s3-infrawatch"
+BUCKET = "infrawatch-server-s3"
 if not BUCKET_BRONZE:
     BUCKET_BRONZE = BUCKET
 
@@ -1165,78 +1165,78 @@ with Progress(
         progress.advance(task)
 
 
-# ============================================================
-# 11. GERAÇÃO DE MAIS 100 AMOSTRAS SINTÉTICAS
-# ============================================================
-# if QUANTIDADE_DADOS_SIMULADOS:
-#     if ultima_amostra_real:
-#         primeiro_inicio_simulado = datetime.fromisoformat(
-#             ultima_amostra_real["fim"]
-#         ) + timedelta(seconds=INTERVALO_SEGUNDOS)
-#     else:
-#         primeiro_inicio_simulado = datetime.now(timezone.utc)
+============================================================
+11. GERAÇÃO DE MAIS 100 AMOSTRAS SINTÉTICAS
+============================================================
+if QUANTIDADE_DADOS_SIMULADOS:
+    if ultima_amostra_real:
+        primeiro_inicio_simulado = datetime.fromisoformat(
+            ultima_amostra_real["fim"]
+        ) + timedelta(seconds=INTERVALO_SEGUNDOS)
+    else:
+        primeiro_inicio_simulado = datetime.now(timezone.utc)
 
-#     with Progress(
-#         TextColumn(f"[bold {AZUL_CLARO}]Gerando amostras[/bold {AZUL_CLARO}]"),
-#         BarColumn(complete_style=AZUL_CLARO, finished_style=AZUL_CLARO),
-#         TextColumn("[bold white]{task.percentage:>3.0f}%[/bold white]"),
-#         TimeElapsedColumn(),
-#         console=console,
-#     ) as progress:
-#         task = progress.add_task("simulacao", total=QUANTIDADE_DADOS_SIMULADOS)
-#         for indice in range(QUANTIDADE_DADOS_SIMULADOS):
-#             inicio_simulado = primeiro_inicio_simulado + timedelta(
-#                 seconds=indice * INTERVALO_SEGUNDOS
-#             )
+    with Progress(
+        TextColumn(f"[bold {AZUL_CLARO}]Gerando amostras[/bold {AZUL_CLARO}]"),
+        BarColumn(complete_style=AZUL_CLARO, finished_style=AZUL_CLARO),
+        TextColumn("[bold white]{task.percentage:>3.0f}%[/bold white]"),
+        TimeElapsedColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("simulacao", total=QUANTIDADE_DADOS_SIMULADOS)
+        for indice in range(QUANTIDADE_DADOS_SIMULADOS):
+            inicio_simulado = primeiro_inicio_simulado + timedelta(
+                seconds=indice * INTERVALO_SEGUNDOS
+            )
 
-#             # Mede o endpoint em cada amostra, alternando os níveis usados na
-#             # captura real. A última coluna retornada é a latência máxima.
-#             nivel_concorrencia = NIVEIS_CONCORRENCIA[
-#                 indice % len(NIVEIS_CONCORRENCIA)
-#             ]
-#             metricas_requisicoes = capturar_requisicoes_http(nivel_concorrencia)
-#             latencia_max_ms = metricas_requisicoes.pop()
+            # Mede o endpoint em cada amostra, alternando os níveis usados na
+            # captura real. A última coluna retornada é a latência máxima.
+            nivel_concorrencia = NIVEIS_CONCORRENCIA[
+                indice % len(NIVEIS_CONCORRENCIA)
+            ]
+            metricas_requisicoes = capturar_requisicoes_http(nivel_concorrencia)
+            latencia_max_ms = metricas_requisicoes.pop()
 
-#             amostra_dashboard = criar_amostra_simulada(
-#                 inicio_simulado, ultima_amostra_real
-#             )
-#             data_hora = inicio_simulado.astimezone(FUSO).strftime(
-#                 "%Y-%m-%d %H:%M:%S"
-#             )
+            amostra_dashboard = criar_amostra_simulada(
+                inicio_simulado, ultima_amostra_real
+            )
+            data_hora = inicio_simulado.astimezone(FUSO).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
 
-#             valores_capturados = []
-#             for componente in componentes_csv:
-#                 campo = CAMPOS_COMPONENTES.get(componente["tipo"].upper())
-#                 valores_capturados.append(
-#                     amostra_dashboard.get(campo) if campo else None
-#                 )
+            valores_capturados = []
+            for componente in componentes_csv:
+                campo = CAMPOS_COMPONENTES.get(componente["tipo"].upper())
+                valores_capturados.append(
+                    amostra_dashboard.get(campo) if campo else None
+                )
 
-#             valores_dashboard = [
-#                 amostra_dashboard["inicio"], amostra_dashboard["fim"]
-#             ]
-#             valores_dashboard.extend(
-#                 amostra_dashboard[campo] for campo in campos_metricas_dashboard
-#             )
-#             valores_dashboard.extend(
-#                 amostra_dashboard.get(campo) for campo in campos_rede_detalhados
-#             )
-#             valores_dashboard.extend([
-#                 str(equipamento_atual["fkEmpresa"]),
-#                 str(equipamento_atual["idEquipamento"]),
-#                 str(id_mac),
-#             ])
-#             amostra_dashboard["LATENCIA_MAX_MS"] = latencia_max_ms
-#             valores_dashboard.extend(
-#                 amostra_dashboard.get(campo) for campo in colunas_adicionais
-#             )
+            valores_dashboard = [
+                amostra_dashboard["inicio"], amostra_dashboard["fim"]
+            ]
+            valores_dashboard.extend(
+                amostra_dashboard[campo] for campo in campos_metricas_dashboard
+            )
+            valores_dashboard.extend(
+                amostra_dashboard.get(campo) for campo in campos_rede_detalhados
+            )
+            valores_dashboard.extend([
+                str(equipamento_atual["fkEmpresa"]),
+                str(equipamento_atual["idEquipamento"]),
+                str(id_mac),
+            ])
+            amostra_dashboard["LATENCIA_MAX_MS"] = latencia_max_ms
+            valores_dashboard.extend(
+                amostra_dashboard.get(campo) for campo in colunas_adicionais
+            )
 
-#             writer.writerow(
-#                 [equipamento_atual["idEquipamento"], data_hora]
-#                 + valores_capturados
-#                 + metricas_requisicoes
-#                 + valores_dashboard
-#             )
-#             progress.advance(task)
+            writer.writerow(
+                [equipamento_atual["idEquipamento"], data_hora]
+                + valores_capturados
+                + metricas_requisicoes
+                + valores_dashboard
+            )
+            progress.advance(task)
 
 
 # ============================================================
