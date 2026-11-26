@@ -1165,9 +1165,9 @@ with Progress(
         progress.advance(task)
 
 
-============================================================
-11. GERAÇÃO DE MAIS 100 AMOSTRAS SINTÉTICAS
-============================================================
+# ============================================================
+# 11. GERAÇÃO DE MAIS 100 AMOSTRAS SINTÉTICAS
+# ============================================================
 if QUANTIDADE_DADOS_SIMULADOS:
     if ultima_amostra_real:
         primeiro_inicio_simulado = datetime.fromisoformat(
